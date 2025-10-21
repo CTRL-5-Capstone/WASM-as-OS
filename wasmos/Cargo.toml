@@ -4,9 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+<<<<<<< HEAD
 dialoguer = "0.11" #Menu
 clearscreen = "4.0.2" #Clear Screen
 
 #For .wasm file detection
 directories = "5.0" 
 walkdir = "2.3"
+=======
+
+
+
+dialoguer = "0.11"
+clearscreen = "4.0.2"
+>>>>>>> 38e44e68cb81c507c2466645082382ee7d725ab2
