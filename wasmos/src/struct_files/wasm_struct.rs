@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct WasmFile //Struct for storing wasm file data
 {
     pub name: String,

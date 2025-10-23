@@ -32,7 +32,7 @@ fn main() {
 
         match choice {
             0 => utility_files::wasm_loader::load_menu(&mut wasmos_list), //Load Wasm File/s into list and txt file
-            1 => println!("Delete.wasm Menu"),  //Remove wasm file from list and txt file
+            1 => utility_files::wasm_destroyer::remove_wasm(&mut wasmos_list),  //Remove wasm file from list and txt file
             2 => println!("Display Runtime Metrics"), //Display runtime metrics to the user
             3 => println!("Start a Wasm file"), //Load a menu for starting a wasm file.
             4 => println!("Halt Wasm file"),
@@ -41,6 +41,6 @@ fn main() {
             7 => break,
             _ => unreachable!(),
         }
-        clearscreen::clear().expect("ERROR Clearing Screen");
+        //clearscreen::clear().expect("ERROR Clearing Screen");
     }
 }
