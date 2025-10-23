@@ -41,7 +41,7 @@ fn path_wasm(wasm_list: &mut WasmList) //Method for adding wasm files
         {
             //println!("Store Path and Filename");
             wasm_list.insert(WasmFile::new_wasm(name, trimmed_path.to_string()));  
-            
+            wasm_list.print();
             
             //Add method to write object to wasm_list.txt
         }
@@ -88,4 +88,9 @@ pub fn load_menu(wasm_list: &mut WasmList)
         2 => (),
         _ => unreachable!(),
     }
+}
+pub fn start_wasm_menu(wasm_list: &mut WasmList)
+{
+    //Implement dynamic menu using dialoguer or menu_rs
+    
 }

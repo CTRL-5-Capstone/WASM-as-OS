@@ -2,58 +2,45 @@ use dialoguer::{Select, theme::ColorfulTheme};
 use super::wasm_struct::WasmFile;
 use std::fs;
 
-pub fn delete_from_file(count: u8)
+pub fn delete_from_file(count: u16)
 {
-    let mut newlines: u8 = 0;
+    let mut file_lines: Vec<String> = Vec::new(); //Vec for storing file lines
     let mut to_file = String::new();
-    let from_file = fs::read_to_string( "./src/wasm_files/wasm_list.csv").expect("ERROR: Path to wasm_list.csv not found");
-    for itter in from_file.chars()
+    let from_file = fs::read_to_string( "wasm_files/wasm_list.csv").expect("ERROR: Path to wasm_list.csv not found");
+    if from_file.is_empty() //If file is empty return won't be possible or seen by user in final version will be stopped earlier
     {
-        if newlines != count
-        {
-                to_file.push(itter);           
-        }  
-        if itter == '\n'
-        {
-            newlines += 1;
-        } 
-    }
-    fs::write("./src/wasm_files/wasm_list.csv", to_file).expect("ERROR: Path to wasm_list.csv not found");
-}
-fn add_to_file(count: u8, to_insert: String)
-{
-    let mut lines: u8 = 0;
-    let from_file: String = fs::read_to_string("./src/wasm_files/wasm_list.csv").expect("ERROR: Path to wasm_list.csv not found");
-    let mut to_file =  String::new();
-    let mut before_file = String::new();
-    if from_file.is_empty()
-    {
-        to_file = to_insert;
+        println!("File is empty!")
     }
     else
     {
-        for itter in from_file.chars()
-        {
-            if lines == count
-            {
-                to_file = format!("{}{}", before_file, to_insert);
-                lines += 1;
-            }
-            if lines < count
-            {
-                before_file.push(itter);
-            }
-            else
-            {
-                to_file.push(itter);
-            }
-            if itter == '\n'
-            {
-                lines += 1
-            }
-        }
+        //Split lines from file into vector by \n
+        file_lines = from_file.split('\n').map(|a_line| a_line.to_string()).collect();
+        //Remove the file at count
+        file_lines.remove(count as usize);
+        //Rejoin lines
+        to_file = file_lines.join("\n");
+        to_file = to_file.trim().to_string(); //Trim any \n just in case
+        fs::write("wasm_files/wasm_list.csv", to_file).expect("ERROR: Path to wasm_list.csv not found");
     }
-    fs::write("./src/wasm_files/wasm_list.csv", to_file).expect("ERROR: Path to wasm_list.csv not found");
+}
+fn add_to_file(count: u16, to_insert: String)
+{
+    let new_line = to_insert.trim().to_string(); //Remove white spaces from new line
+    let mut to_file = String::new();
+    let mut file_lines: Vec<String> = Vec::new(); //Vec for storing file lines
+    let from_file: String = fs::read_to_string("wasm_files/wasm_list.csv").expect("ERROR: Path to wasm_list.csv not found").trim().to_string();
+    if from_file.is_empty()
+    {
+        to_file = new_line; //if no lines in file insert new line
+    }
+    else {
+        //If lines in file
+        file_lines = from_file.split('\n').map(|a_line| a_line.to_string()).collect(); //Divide file into vec by \n
+        file_lines.insert(count as usize , new_line); //Insert the new line
+        to_file = file_lines.join("\n").trim().to_string(); //Concatonate lines in vec
+
+    }
+    fs::write("wasm_files/wasm_list.csv", to_file).expect("ERROR: Path to wasm_list.csv not found");
 }
 pub struct WasmList
 { //Stores a Structure WasmFile which holds information about .wasm files.
@@ -90,7 +77,7 @@ impl WasmList
     pub fn insert(&mut self, node: WasmFile) //Node Insertion Function. Inserts files alphabetically
     {   
         let menu: Vec<_> = vec!["Yes","No"]; //Menu
-        let mut count: u8 = 0;
+        let mut count: u16 = 0;
         let to_insert = format!("{}, {}\n", node.name, node.path_to); //To be inserted into wasm_list.csv
 
         if self.head.is_none() || self.head.as_ref().unwrap().wasm_file.name > node.name //Case for no head or new nodes before head
@@ -102,7 +89,6 @@ impl WasmList
                 self.tail = self.head.clone();
             }
             add_to_file(count, to_insert);
-            self.print();
         }
         else if self.head.as_ref().unwrap().wasm_file.name == node.name //Case for node equal to head
         {
@@ -125,16 +111,18 @@ impl WasmList
         }
         else //Case for node in list
         {
+            count += 1;
             let mut current = self.head.as_mut().unwrap();
             while current.next.is_some() //Iterate thorugh list until spot found where new node name is less than the next node
             {
-                count += 1;
+                println!("{}", count);
                 let next = current.next.as_mut().unwrap();
                 if next.wasm_file.name >= node.name //Insert Node
                 {
                     break;
                 }
                 current = current.next.as_mut().unwrap(); //Traverse node
+                count += 1;
             }
             if current.next.is_none()
             {
@@ -172,7 +160,7 @@ impl WasmList
     }
     pub fn delete(&mut self, name: String) //Function for removing the node from the list
     {
-        let mut count: u8 = 0;
+        let mut count: u16 = 0;
         let menu: Vec<_> = vec!["Yes","No"];
         let choice = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Delete File?")
