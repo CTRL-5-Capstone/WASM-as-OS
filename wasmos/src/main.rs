@@ -4,7 +4,9 @@ use dialoguer::{Select, theme::ColorfulTheme};
 //Modules
 mod utility_files;
 mod struct_files;
+mod run_wasm;
 use crate::struct_files::wasm_list::*;
+use crate::run_wasm::wasm_control::*;
 
 fn main() {
     let mut wasmos_list = WasmList::new_list(); //List for storing wasm stuctures
@@ -32,10 +34,10 @@ fn main() {
 
         match choice {
             0 => utility_files::wasm_loader::load_menu(&mut wasmos_list), //Load Wasm File/s into list and txt file
-            1 => utility_files::wasm_destroyer::remove_wasm(&mut wasmos_list),  //Remove wasm file from list and txt file
+            1 => utility_files::wasm_destroyer::remove_wasm(&mut wasmos_list, 0),  //Remove wasm file from list and txt file
             2 => println!("Display Runtime Metrics"), //Display runtime metrics to the user
-            3 => println!("Start a Wasm file"), //Load a menu for starting a wasm file.
-            4 => println!("Halt Wasm file"),
+            3 => run_wasm::wasm_control::start_wasm(&mut wasmos_list, 0), //Load a menu for starting a wasm file.
+            4 => run_wasm::wasm_control::halt_wasm(&mut wasmos_list, 0),
             5 => println!("Diplay Menu for prioritizing recources"), //Scheduler
             6 => println!("Store the current state to a file"), //Optional but would be cool
             7 => break,

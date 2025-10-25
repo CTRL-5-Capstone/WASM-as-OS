@@ -219,4 +219,76 @@ impl WasmList
 
         }
     }
+    pub fn list_namevec(&mut self) -> Vec<String>
+    {
+        let mut name_vec: Vec<String> = Vec::new();
+        let mut current = self.head.as_ref();
+        while let Some(node) = current
+        {
+            name_vec.push(node.wasm_file.name.clone());
+            current = node.next.as_ref();
+        }
+        return name_vec;
+    }
+    pub fn list_runningvec(&mut self) -> Vec<String>
+    {            
+        let mut running_vec: Vec<String> = Vec::new();
+        let mut current = self.head.as_ref();
+        while let Some(node) = current
+        {
+            if node.wasm_file.running
+            {
+                running_vec.push(node.wasm_file.name.clone());
+            }
+            current = node.next.as_ref();
+        }
+        return running_vec;
+    }
+    pub fn list_notrunningvec(&mut self) -> Vec<String>
+    {            
+        let mut nonrunning_vec: Vec<String> = Vec::new();
+        let mut current = self.head.as_ref();
+        while let Some(node) = current
+        {
+            if !node.wasm_file.running
+            {
+                nonrunning_vec.push(node.wasm_file.name.clone());
+            }
+            current = node.next.as_ref();
+        }
+        return nonrunning_vec;
+    }
+    pub fn running_false(&mut self, name: String)
+    {
+        let mut current = self.head.as_mut();
+        while let Some(node) = current
+        {
+            if node.wasm_file.name == name
+            {
+                node.wasm_file.run_false();
+                break;
+            }
+            current = node.next.as_mut();
+        }
+    }
+    pub fn running_true(&mut self, name: String)
+    {
+        let mut current = self.head.as_mut();
+        while let Some(node) = current
+        {
+            if node.wasm_file.name == name
+            {
+                node.wasm_file.run_true();
+                break;
+            }
+            current = node.next.as_mut();
+        }
+    }
+
+    /* could be a useful function not needed yet
+    pub fn get_file(&mut self, name: String)
+    {
+
+    }
+    */
 }
