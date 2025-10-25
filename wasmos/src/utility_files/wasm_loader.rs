@@ -89,8 +89,3 @@ pub fn load_menu(wasm_list: &mut WasmList)
         _ => unreachable!(),
     }
 }
-pub fn start_wasm_menu(wasm_list: &mut WasmList)
-{
-    //Implement dynamic menu using dialoguer or menu_rs
-    
-}

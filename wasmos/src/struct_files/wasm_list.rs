@@ -230,6 +230,34 @@ impl WasmList
         }
         return name_vec;
     }
+    pub fn list_runningvec(&mut self) -> Vec<String>
+    {            
+        let mut running_vec: Vec<String> = Vec::new();
+        let mut current = self.head.as_ref();
+        while let Some(node) = current
+        {
+            if node.wasm_file.running
+            {
+                running_vec.push(node.wasm_file.name.clone());
+            }
+            current = node.next.as_ref();
+        }
+        return running_vec;
+    }
+        pub fn list_notrunningvec(&mut self) -> Vec<String>
+    {            
+        let mut nonrunning_vec: Vec<String> = Vec::new();
+        let mut current = self.head.as_ref();
+        while let Some(node) = current
+        {
+            if !node.wasm_file.running
+            {
+                nonrunning_vec.push(node.wasm_file.name.clone());
+            }
+            current = node.next.as_ref();
+        }
+        return nonrunning_vec;
+    }
     /* could be a useful function not needed yet
     pub fn get_file(&mut self, name: String)
     {
