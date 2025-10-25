@@ -219,4 +219,21 @@ impl WasmList
 
         }
     }
+    pub fn list_namevec(&mut self) -> Vec<String>
+    {
+        let mut name_vec: Vec<String> = Vec::new();
+        let mut current = self.head.as_ref();
+        while let Some(node) = current
+        {
+            name_vec.push(node.wasm_file.name.clone());
+            current = node.next.as_ref();
+        }
+        return name_vec;
+    }
+    /* could be a useful function not needed yet
+    pub fn get_file(&mut self, name: String)
+    {
+
+    }
+    */
 }
