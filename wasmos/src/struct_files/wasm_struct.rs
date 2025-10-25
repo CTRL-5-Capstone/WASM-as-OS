@@ -20,4 +20,12 @@ impl WasmFile
             running: false
         }
     }
+    pub fn run_false(&mut self)
+    {
+        self.running = false;
+    }
+    pub fn run_true(&mut self)
+    {
+        self.running = true;
+    }
 }

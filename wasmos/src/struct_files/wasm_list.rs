@@ -244,7 +244,7 @@ impl WasmList
         }
         return running_vec;
     }
-        pub fn list_notrunningvec(&mut self) -> Vec<String>
+    pub fn list_notrunningvec(&mut self) -> Vec<String>
     {            
         let mut nonrunning_vec: Vec<String> = Vec::new();
         let mut current = self.head.as_ref();
@@ -258,6 +258,33 @@ impl WasmList
         }
         return nonrunning_vec;
     }
+    pub fn running_false(&mut self, name: String)
+    {
+        let mut current = self.head.as_mut();
+        while let Some(node) = current
+        {
+            if node.wasm_file.name == name
+            {
+                node.wasm_file.run_false();
+                break;
+            }
+            current = node.next.as_mut();
+        }
+    }
+    pub fn running_true(&mut self, name: String)
+    {
+        let mut current = self.head.as_mut();
+        while let Some(node) = current
+        {
+            if node.wasm_file.name == name
+            {
+                node.wasm_file.run_true();
+                break;
+            }
+            current = node.next.as_mut();
+        }
+    }
+
     /* could be a useful function not needed yet
     pub fn get_file(&mut self, name: String)
     {

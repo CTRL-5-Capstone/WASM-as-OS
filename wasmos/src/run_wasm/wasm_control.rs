@@ -1,18 +1,18 @@
 use dialoguer::{Select, theme::ColorfulTheme};
 use crate::struct_files::wasm_list::*;
-pub fn start_wasm(&wasm_list: WasmList, index: usize)
+pub fn start_wasm(wasm_list: &mut WasmList, index: usize)
 {
-    let mut halted_vec: Vec<String> = wasm_list.running_vec();
+    let mut halted_vec: Vec<String> = wasm_list.list_notrunningvec();
     if halted_vec.is_empty()
     {
-        println("No running wasm modules")
+        println!("No wasm files to run")
     }
     else
     {
-        file_list.insert(0, String::from("Return to main menu"));
+        halted_vec.insert(0, String::from("Return to main menu"));
         let choice = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Start a wasm file")
-        .items(&file_list)
+        .items(&halted_vec)
         .default(index)
         .interact()
         .unwrap();
@@ -20,23 +20,24 @@ pub fn start_wasm(&wasm_list: WasmList, index: usize)
         else 
         {
             //Implement function to run a wasm module.
-            start_wasm(wasm_list, choice - 1);    
+            wasm_list.running_true(halted_vec[choice].clone()); //Sets wasm to running
+            start_wasm(wasm_list, choice - 1); //recursive menu call    
         }
     }
 }
-pub fn halt_wasm(&wasm_list: WasmList, index: usize)
+pub fn halt_wasm(wasm_list: &mut WasmList, index: usize)
 {
-    let mut halted_vec: Vec<String> = wasm_list.nonrunning_vec();
-    if halted_vec.is_empty()
+    let mut started_vec: Vec<String> = wasm_list.list_runningvec();
+    if started_vec.is_empty()
     {
-        println("No running wasm modules")
+        println!("No running wasm modules")
     }
     else
     {
-        file_list.insert(0, String::from("Return to main menu"));
+        started_vec.insert(0, String::from("Return to main menu"));
         let choice = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Stop a wasm file")
-        .items(&file_list)
+        .items(&started_vec)
         .default(index)
         .interact()
         .unwrap();
@@ -44,7 +45,8 @@ pub fn halt_wasm(&wasm_list: WasmList, index: usize)
         else 
         {
             //Stop a wasm file here or from a function
-            halt_wasm(wasm_list, choice - 1);    
+            wasm_list.running_false(started_vec[choice].clone()); //Set wasm to stopped
+            halt_wasm(wasm_list, choice - 1); //recursive menu call
         }
     }
 }
