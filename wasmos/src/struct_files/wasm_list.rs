@@ -78,7 +78,7 @@ impl WasmList
     {   
         let menu: Vec<_> = vec!["Yes","No"]; //Menu
         let mut count: u16 = 0;
-        let to_insert = format!("{}, {}\n", node.name, node.path_to); //To be inserted into wasm_list.csv
+        let to_insert = format!("{},{}\n", node.name, node.path_to); //To be inserted into wasm_list.csv
 
         if self.head.is_none() || self.head.as_ref().unwrap().wasm_file.name > node.name //Case for no head or new nodes before head
         {

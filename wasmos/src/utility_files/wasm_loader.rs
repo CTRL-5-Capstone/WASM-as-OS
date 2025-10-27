@@ -4,9 +4,37 @@ use std::io::{self, Write};
 use std::path::Path;
 use crate::struct_files::wasm_list::*;
 use crate::struct_files::wasm_struct::WasmFile;
+use std::fs;
 
-
-fn detect_wasm() //Implement a .wasm file detection method 
+pub fn load_file(wasm_list: &mut WasmList) //Loads wasm files from wasm_list.csv
+{
+    let mut itter = 0;
+    let mut name = String::new();
+    let mut path_to = String::new();
+    let from_file: String = fs::read_to_string("wasm_files/wasm_list.csv").expect("ERROR: Path to wasm_list.csv not found").trim().to_string();
+    if !from_file.is_empty()
+    {
+        let mut wasm_vec: Vec<String> = from_file.split([',', '\n']).map(|to_string| to_string.trim().trim_matches([',', '\n']).to_string()).collect();
+        for string in wasm_vec
+        {
+            if itter % 2 == 0
+            {
+                name = string;
+            }
+            else 
+            {
+                path_to = string;
+                let path_checker = Path::new(&path_to);
+                if path_checker.exists()
+                {
+                    wasm_list.insert(WasmFile::new_wasm(name.clone(), path_to));
+                }    
+            }
+            itter += 1
+        }
+    }
+}
+    fn detect_wasm() //Implement a .wasm file detection method 
 {
     println!("Detect Wasm files");
     
@@ -89,3 +117,4 @@ pub fn load_menu(wasm_list: &mut WasmList)
         _ => unreachable!(),
     }
 }
+
