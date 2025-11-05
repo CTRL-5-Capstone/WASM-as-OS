@@ -38,8 +38,8 @@ fn main() {
             0 => load_menu(&mut wasmos_list), //Load Wasm File/s into list and txt file
             1 => remove_wasm(&mut wasmos_list, 0),  //Remove wasm file from list and txt file
             2 => println!("Display Runtime Metrics"), //Display runtime metrics to the user
-            3 => start_wasm(&mut wasmos_list, 0), //Load a menu for starting a wasm file.
-            4 => halt_wasm(&mut wasmos_list, 0),
+            3 => start_wasm(&mut wasmos_list), //Load a menu for starting a wasm file.
+            4 => halt_wasm(&mut wasmos_list),
             5 => println!("Diplay Menu for prioritizing recources"), //Scheduler
             6 => println!("Store the current state to a file"), //Optional but would be cool
             7 => break,
@@ -47,4 +47,5 @@ fn main() {
         }
         //clearscreen::clear().expect("ERROR Clearing Screen");
     }
+    cleanup_wasms(&mut wasmos_list);
 }

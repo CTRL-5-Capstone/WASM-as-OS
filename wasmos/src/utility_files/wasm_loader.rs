@@ -10,11 +10,10 @@ pub fn load_file(wasm_list: &mut WasmList) //Loads wasm files from wasm_list.csv
 {
     let mut itter = 0;
     let mut name = String::new();
-    let mut path_to = String::new();
     let from_file: String = fs::read_to_string("wasm_files/wasm_list.csv").expect("ERROR: Path to wasm_list.csv not found").trim().to_string();
     if !from_file.is_empty()
     {
-        let mut wasm_vec: Vec<String> = from_file.split([',', '\n']).map(|to_string| to_string.trim().trim_matches([',', '\n']).to_string()).collect();
+        let wasm_vec: Vec<String> = from_file.split([',', '\n']).map(|to_string| to_string.trim().trim_matches([',', '\n']).to_string()).collect();
         for string in wasm_vec
         {
             if itter % 2 == 0
@@ -23,11 +22,11 @@ pub fn load_file(wasm_list: &mut WasmList) //Loads wasm files from wasm_list.csv
             }
             else 
             {
-                path_to = string;
+                let path_to = string;
                 let path_checker = Path::new(&path_to);
                 if path_checker.exists()
                 {
-                    wasm_list.insert(WasmFile::new_wasm(name.clone(), path_to));
+                    wasm_list.append_list(WasmFile::new_wasm(name.clone(), path_to));
                 }    
             }
             itter += 1
