@@ -46,7 +46,7 @@ pub struct WasmList
 #[derive(Clone)]
 pub struct WasmNode
 { //Node for WasmList
-    wasm_file: WasmFile, //.wasm file structure
+    pub wasm_file: WasmFile, //.wasm file structure
     next: Option<Rc<RefCell<WasmNode>>>
 }
 impl WasmNode

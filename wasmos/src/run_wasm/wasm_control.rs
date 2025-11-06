@@ -1,6 +1,7 @@
 use dialoguer::{Select, theme::ColorfulTheme};
 use crate::struct_files::wasm_list::*;
 use super::wasm_engine::wasm_engine;
+use std::path::Path;
 pub fn start_wasm(wasm_list: &mut WasmList)
 {
     let wasm_tup = wasm_list.list_haltedvec();
@@ -9,7 +10,7 @@ pub fn start_wasm(wasm_list: &mut WasmList)
     let mut choice = 0;
     if halted_vec.is_empty()
     {
-        println!("No running wasm modules")
+        println!("No wasm modules to run")
     }
     else
     {
@@ -18,7 +19,7 @@ pub fn start_wasm(wasm_list: &mut WasmList)
         {    
             if halted_vec.len() == 1 {break;}
             choice = Select::with_theme(&ColorfulTheme::default())
-            .with_prompt("Stop a wasm file")
+            .with_prompt("Start a wasm file")
             .items(&halted_vec)
             .default(choice)
             .interact()
@@ -27,14 +28,29 @@ pub fn start_wasm(wasm_list: &mut WasmList)
             else 
             {
                 //Stop a wasm file here or from a function
-                wasm_list.running_true(wasm_vec[choice - 1].clone()); //Set wasm to running
-                wasm_engine();
+                let path_name = &wasm_vec[choice - 1].borrow().wasm_file.path_to.clone();
+                let path = Path::new(&path_name);
+                if path.exists()
+                {
+                    if !wasm_engine(path)
+                    {
+                        wasm_list.delete(halted_vec[choice].clone());
+                    }
+                    else
+                    {
+                        wasm_list.running_true(wasm_vec[choice - 1].clone()); //Set wasm to running
+                    }
+                }
                 halted_vec.remove(choice);
                 wasm_vec.remove(choice - 1);
                 choice -= 1;
             }
         }
     }
+}
+pub fn pause_wasm(wasm_list: &mut WasmList)
+{
+    
 }
 pub fn halt_wasm(wasm_list: &mut WasmList)
 {
