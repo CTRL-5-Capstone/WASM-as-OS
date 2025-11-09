@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WASM-OS Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">WASM-OS</div>
+        <ul class="nav-menu">
+            <li><a href="index.html" class="active">Dashboard</a></li>
+            <li><a href="pages/tasks.html">Tasks</a></li>
+            <li><a href="pages/execute.html">Execute</a></li>
+            <li><a href="pages/inspect.html">Inspect</a></li>
+            <li><a href="pages/monitor.html">Monitor</a></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <h1>WASM-OS Dashboard</h1>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Tasks</h3>
+                <p class="stat-value" id="totalTasks">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Running Tasks</h3>
+                <p class="stat-value" id="runningTasks">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Failed Tasks</h3>
+                <p class="stat-value" id="failedTasks">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Total Instructions</h3>
+                <p class="stat-value" id="totalInstructions">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Total Syscalls</h3>
+                <p class="stat-value" id="totalSyscalls">0</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>System Status</h2>
+            <div id="systemStatus" class="status-box">
+                <p>Connecting to WASM-OS API...</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Recent Activity</h2>
+            <div id="activityLog" class="log-box"></div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>
