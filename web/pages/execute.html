@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Execute - WASM-OS</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">WASM-OS</div>
+        <ul class="nav-menu">
+            <li><a href="../index.html">Dashboard</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="execute.html" class="active">Execute</a></li>
+            <li><a href="inspect.html">Inspect</a></li>
+            <li><a href="monitor.html">Monitor</a></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <h1>Execute WASM Module</h1>
+
+        <div class="section">
+            <h2>Upload & Execute</h2>
+            <form id="executeForm" class="form">
+                <input type="file" id="execWasmFile" accept=".wasm" required>
+                <button type="submit">Execute</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2>Execution Results</h2>
+            <div id="executionResults" class="results-box">
+                <p>No execution results yet</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Execution Metrics</h2>
+            <div id="executionMetrics" class="metrics-grid"></div>
+        </div>
+    </div>
+
+    <script src="../js/api.js"></script>
+    <script src="../js/execute.js"></script>
+</body>
+</html>

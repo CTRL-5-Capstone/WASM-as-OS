@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tasks - WASM-OS</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">WASM-OS</div>
+        <ul class="nav-menu">
+            <li><a href="../index.html">Dashboard</a></li>
+            <li><a href="tasks.html" class="active">Tasks</a></li>
+            <li><a href="execute.html">Execute</a></li>
+            <li><a href="inspect.html">Inspect</a></li>
+            <li><a href="monitor.html">Monitor</a></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <h1>Task Management</h1>
+
+        <div class="section">
+            <h2>Load New Task</h2>
+            <form id="loadTaskForm" class="form">
+                <input type="text" id="taskName" placeholder="Task Name" required>
+                <input type="file" id="wasmFile" accept=".wasm" required>
+                <button type="submit">Load Task</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2>Active Tasks</h2>
+            <button onclick="refreshTasks()" class="btn-refresh">Refresh</button>
+            <div id="tasksList" class="tasks-container"></div>
+        </div>
+    </div>
+
+    <script src="../js/api.js"></script>
+    <script src="../js/tasks.js"></script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inspect - WASM-OS</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">WASM-OS</div>
+        <ul class="nav-menu">
+            <li><a href="../index.html">Dashboard</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="execute.html">Execute</a></li>
+            <li><a href="inspect.html" class="active">Inspect</a></li>
+            <li><a href="monitor.html">Monitor</a></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <h1>WASM Module Inspector</h1>
+
+        <div class="section">
+            <h2>Upload Module for Inspection</h2>
+            <form id="inspectForm" class="form">
+                <input type="file" id="inspectWasmFile" accept=".wasm" required>
+                <button type="submit">Inspect</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2>Module Information</h2>
+            <div id="moduleInfo" class="info-box">
+                <p>No module loaded</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Security Analysis</h2>
+            <div id="securityAnalysis" class="security-box">
+                <p>No analysis available</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/api.js"></script>
+    <script src="../js/inspect.js"></script>
+</body>
+</html>

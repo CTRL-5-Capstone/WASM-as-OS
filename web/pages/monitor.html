@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor - WASM-OS</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">WASM-OS</div>
+        <ul class="nav-menu">
+            <li><a href="../index.html">Dashboard</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="execute.html">Execute</a></li>
+            <li><a href="inspect.html">Inspect</a></li>
+            <li><a href="monitor.html" class="active">Monitor</a></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <h1>Real-time Monitoring</h1>
+
+        <div class="section">
+            <h2>System Metrics</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h4>CPU Usage</h4>
+                    <div class="progress-bar">
+                        <div id="cpuBar" class="progress-fill"></div>
+                    </div>
+                    <p id="cpuValue">0%</p>
+                </div>
+                <div class="metric-card">
+                    <h4>Memory Usage</h4>
+                    <div class="progress-bar">
+                        <div id="memBar" class="progress-fill"></div>
+                    </div>
+                    <p id="memValue">0 KB</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Live Task Status</h2>
+            <div id="liveTaskStatus" class="status-grid"></div>
+        </div>
+
+        <div class="section">
+            <h2>System Logs</h2>
+            <div id="systemLogs" class="log-box"></div>
+        </div>
+    </div>
+
+    <script src="../js/api.js"></script>
+    <script src="../js/monitor.js"></script>
+</body>
+</html>
