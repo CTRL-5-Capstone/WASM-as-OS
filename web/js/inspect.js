@@ -99,19 +99,42 @@ function displayModuleInfo(module) {
     const infoBox = document.getElementById('moduleInfo');
     
     infoBox.innerHTML = `
-        <h4>Module Structure</h4>
-        <p><strong>Version:</strong> ${module.version}</p>
-        <p><strong>Types:</strong> ${module.types}</p>
-        <p><strong>Functions:</strong> ${module.functions}</p>
-        <p><strong>Memory:</strong> ${module.memory || 'None'}</p>
-        <p><strong>Imports:</strong> ${module.imports.join(', ') || 'None'}</p>
-        <p><strong>Exports:</strong> ${module.exports.join(', ') || 'None'}</p>
+        <div class="space-y-3">
+            <h4 class="text-lg font-semibold text-foreground mb-4">Module Structure</h4>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-secondary rounded-lg p-3 border border-border">
+                    <p class="text-xs text-muted-foreground mb-1">Version</p>
+                    <p class="text-lg font-semibold">${module.version}</p>
+                </div>
+                <div class="bg-secondary rounded-lg p-3 border border-border">
+                    <p class="text-xs text-muted-foreground mb-1">Types</p>
+                    <p class="text-lg font-semibold">${module.types}</p>
+                </div>
+                <div class="bg-secondary rounded-lg p-3 border border-border">
+                    <p class="text-xs text-muted-foreground mb-1">Functions</p>
+                    <p class="text-lg font-semibold">${module.functions}</p>
+                </div>
+                <div class="bg-secondary rounded-lg p-3 border border-border">
+                    <p class="text-xs text-muted-foreground mb-1">Memory</p>
+                    <p class="text-lg font-semibold">${module.memory || 'None'}</p>
+                </div>
+            </div>
+            <div class="mt-4 space-y-2">
+                <p class="text-sm"><span class="text-muted-foreground">Imports:</span> <span class="text-foreground">${module.imports.join(', ') || 'None'}</span></p>
+                <p class="text-sm"><span class="text-muted-foreground">Exports:</span> <span class="text-foreground">${module.exports.join(', ') || 'None'}</span></p>
+            </div>
+        </div>
     `;
 }
 
 function analyzeSecurityRisks(module) {
     const securityBox = document.getElementById('securityAnalysis');
     const risks = [];
+    const riskColors = {
+        warning: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500',
+        info: 'bg-blue-500/10 border-blue-500/20 text-blue-500',
+        ok: 'bg-green-500/10 border-green-500/20 text-green-500'
+    };
     
     if (module.imports.length > 0) {
         risks.push({
@@ -142,8 +165,8 @@ function analyzeSecurityRisks(module) {
     }
     
     securityBox.innerHTML = risks.map(risk => `
-        <div class="security-${risk.level}">
-            <p>${risk.message}</p>
+        <div class="${riskColors[risk.level]} rounded-lg p-4 border mb-3">
+            <p class="text-sm">${risk.message}</p>
         </div>
     `).join('');
 }
