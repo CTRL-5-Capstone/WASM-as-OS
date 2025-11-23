@@ -86,9 +86,9 @@ function displayResults(data) {
     
     if (data.error) {
         resultsBox.innerHTML = `
-            <div class="security-error">
-                <h4>Execution Error</h4>
-                <p>${data.error}</p>
+            <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+                <h4 class="text-red-500 font-semibold mb-2">Execution Error</h4>
+                <p class="text-red-400">${data.error}</p>
             </div>
         `;
         metricsBox.innerHTML = '';
@@ -99,15 +99,17 @@ function displayResults(data) {
     const lastExec = execHistory.length > 0 ? execHistory[execHistory.length - 1] : null;
     
     resultsBox.innerHTML = `
-        <div class="security-ok">
-            <h4>✓ Execution Completed</h4>
-            <p><strong>Status:</strong> ${data.status || 'Completed'}</p>
-            <p><strong>Task ID:</strong> ${data.id || 'N/A'}</p>
-            ${data.note ? '<p><em>' + data.note + '</em></p>' : ''}
-            ${lastExec ? `
-                <p><strong>Timestamp:</strong> ${lastExec.timestamp}</p>
-                <p><strong>Duration:</strong> ${lastExec.duration_us}µs</p>
-            ` : ''}
+        <div class="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+            <h4 class="text-green-500 font-semibold mb-3">✓ Execution Completed</h4>
+            <div class="space-y-2 text-sm">
+                <p><span class="text-muted-foreground">Status:</span> <span class="text-foreground font-medium">${data.status || 'Completed'}</span></p>
+                <p><span class="text-muted-foreground">Task ID:</span> <span class="text-foreground font-mono">${data.id || 'N/A'}</span></p>
+                ${data.note ? '<p class="text-muted-foreground italic">' + data.note + '</p>' : ''}
+                ${lastExec ? `
+                    <p><span class="text-muted-foreground">Timestamp:</span> <span class="text-foreground">${lastExec.timestamp}</span></p>
+                    <p><span class="text-muted-foreground">Duration:</span> <span class="text-foreground font-mono">${lastExec.duration_us}µs</span></p>
+                ` : ''}
+            </div>
         </div>
     `;
     
@@ -115,21 +117,21 @@ function displayResults(data) {
     const lastMetrics = lastExec || {};
     
     metricsBox.innerHTML = `
-        <div class="metric-card">
-            <h4>Instructions Executed</h4>
-            <p style="font-size: 1.5rem; font-weight: bold; color: #667eea;">
+        <div class="bg-secondary rounded-lg p-4 border border-border">
+            <h4 class="text-sm text-muted-foreground mb-2">Instructions Executed</h4>
+            <p class="text-2xl font-bold text-blue-500">
                 ${(lastMetrics.instructions || metrics.total_instructions || 0).toLocaleString()}
             </p>
         </div>
-        <div class="metric-card">
-            <h4>Syscalls Made</h4>
-            <p style="font-size: 1.5rem; font-weight: bold; color: #667eea;">
+        <div class="bg-secondary rounded-lg p-4 border border-border">
+            <h4 class="text-sm text-muted-foreground mb-2">Syscalls Made</h4>
+            <p class="text-2xl font-bold text-purple-500">
                 ${(lastMetrics.syscalls || metrics.total_syscalls || 0).toLocaleString()}
             </p>
         </div>
-        <div class="metric-card">
-            <h4>Total Runs</h4>
-            <p style="font-size: 1.5rem; font-weight: bold; color: #667eea;">
+        <div class="bg-secondary rounded-lg p-4 border border-border">
+            <h4 class="text-sm text-muted-foreground mb-2">Total Runs</h4>
+            <p class="text-2xl font-bold text-green-500">
                 ${metrics.runs || 1}
             </p>
         </div>
