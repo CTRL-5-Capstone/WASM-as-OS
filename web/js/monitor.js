@@ -47,9 +47,23 @@ async function updateMonitor() {
         }
         
     } catch (error) {
-        // Only log connection error once
+        document.getElementById('cpuBar').style.width = '0%';
+        document.getElementById('cpuValue').textContent = '0%';
+        document.getElementById('memBar').style.width = '0%';
+        document.getElementById('memValue').textContent = '0 KB';
+        
+        const statusGrid = document.getElementById('liveTaskStatus');
+        if (statusGrid && lastUpdateSuccess) {
+            statusGrid.innerHTML = `
+                <div style="background: linear-gradient(135deg, #ffebee, #ffcdd2); padding: 2rem; border-radius: 16px; border-left: 5px solid #dc3545; text-align: center;">
+                    <h3 style="color: #d32f2f; margin-bottom: 0.5rem;">⚠ Failed to Fetch</h3>
+                    <p style="color: #666;">Server not running at ${API_BASE}</p>
+                </div>
+            `;
+        }
+        
         if (lastUpdateSuccess) {
-            addSystemLog('⚠ Connection to API lost - retrying...', 'error');
+            addSystemLog('⚠ Failed to fetch: Connection to API lost - retrying...', 'error');
             lastUpdateSuccess = false;
         }
     }
