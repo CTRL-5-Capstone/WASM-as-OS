@@ -5,19 +5,26 @@ async function refreshTasks() {
         
         if (result.success && result.data.length > 0) {
             tasksList.innerHTML = result.data.map(task => {
-                const statusType = task.status.type || task.status;
-                const statusText = task.status.Failed || statusType;
+                const statusType = typeof task.status === 'string' ? task.status : (task.status.type || 'Loaded');
+                const statusText = task.status.error || statusType;
+                const statusColors = {
+                    Loaded: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+                    Running: 'bg-green-500/10 text-green-500 border-green-500/20',
+                    Paused: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
+                    Stopped: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
+                    Failed: 'bg-red-500/10 text-red-500 border-red-500/20'
+                };
                 const execHistory = task.execution_history || [];
                 const lastExec = execHistory.length > 0 ? execHistory[execHistory.length - 1] : null;
                 
                 return `
-                <div class="task-card">
-                    <div class="task-info">
-                        <h4>${task.name}</h4>
-                        <p style="font-size: 0.85rem; color: #666;">ID: ${task.id}</p>
-                        <span class="task-status status-${statusType.toLowerCase()}">${statusText}</span>
+                <div class="bg-card border border-border rounded-xl p-6 hover:border-primary/50 transition-all flex items-center justify-between">
+                    <div>
+                        <h4 class="text-lg font-semibold mb-1">${task.name}</h4>
+                        <p class="text-sm text-muted-foreground mb-2">ID: ${task.id.substring(0, 8)}...</p>
+                        <span class="inline-block px-3 py-1 rounded-full text-xs font-medium border ${statusColors[statusType] || statusColors.Loaded}">${statusText}</span>
                         ${task.metrics ? `
-                            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                            <div class="mt-3 text-sm text-muted-foreground">
                                 <p>📊 Runs: ${task.metrics.runs} | Instructions: ${task.metrics.total_instructions.toLocaleString()} | Syscalls: ${task.metrics.total_syscalls}</p>
                             </div>
                         ` : ''}
@@ -30,19 +37,36 @@ async function refreshTasks() {
                             <button onclick="showHistory('${task.id}')" style="margin-top: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer;">View History (${execHistory.length})</button>
                         ` : ''}
                     </div>
-                    <div class="task-actions">
-                        <button class="btn-start" onclick="startTask('${task.id}')">Start</button>
-                        <button class="btn-pause" onclick="pauseTask('${task.id}')">Pause</button>
-                        <button class="btn-stop" onclick="stopTask('${task.id}')">Stop</button>
-                        <button class="btn-delete" onclick="deleteTask('${task.id}')">Delete</button>
+                    <div class="flex gap-2">
+                        <button onclick="startTask('${task.id}')" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">Start</button>
+                        <button onclick="pauseTask('${task.id}')" class="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors">Pause</button>
+                        <button onclick="stopTask('${task.id}')" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">Stop</button>
+                        <button onclick="deleteTask('${task.id}')" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors">Delete</button>
                     </div>
                 </div>
             `}).join('');
         } else {
-            tasksList.innerHTML = '<p style="color: #666;">No tasks loaded</p>';
+            tasksList.innerHTML = '<p class="text-muted-foreground text-center py-8">No tasks loaded</p>';
         }
     } catch (error) {
-        showNotification('Failed to load tasks', 'error');
+        const tasksList = document.getElementById('tasksList');
+        if (tasksList) {
+            tasksList.innerHTML = `
+                <div style="background: linear-gradient(135deg, #ffebee, #ffcdd2); padding: 2rem; border-radius: 16px; border-left: 5px solid #dc3545; text-align: center;">
+                    <h3 style="color: #d32f2f; margin-bottom: 1rem;">⚠ Failed to Fetch Tasks</h3>
+                    <p style="color: #666; margin-bottom: 1.5rem;">Cannot connect to API server at ${API_BASE}</p>
+                    <div style="background: white; padding: 1.5rem; border-radius: 12px; text-align: left;">
+                        <p style="font-weight: 600; margin-bottom: 1rem;">Start the backend server:</p>
+                        <ol style="margin-left: 1.5rem; line-height: 2;">
+                            <li>Install Rust from <a href="https://rustup.rs/" target="_blank" style="color: #667eea;">rustup.rs</a></li>
+                            <li>Run <code style="background: #f8f9fa; padding: 0.25rem 0.75rem; border-radius: 6px; font-family: monospace;">build.bat</code></li>
+                            <li>Run <code style="background: #f8f9fa; padding: 0.25rem 0.75rem; border-radius: 6px; font-family: monospace;">run-server.bat</code></li>
+                            <li>Refresh this page</li>
+                        </ol>
+                    </div>
+                </div>
+            `;
+        }
     }
 }
 
