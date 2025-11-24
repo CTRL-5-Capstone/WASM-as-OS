@@ -2,9 +2,9 @@
 
 ## Team CTRL 5
 * Ololade Awoyemi
-* Shivam Sakthivel Pandi
 * Benjamin Wilson
 * Biraj Sharma
+* Shivam Sakthivel Pandi
 * Sritan Reddy Gangidi
 
 ## Project Description
