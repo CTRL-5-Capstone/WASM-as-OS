@@ -70,8 +70,8 @@ pub struct Import
 #[derive(Clone)]
 pub struct Types
 {
-    pub args: Vec<TypeBytes>,
-    pub turns: Vec<TypeBytes>,
+    pub args: Vec<Option<TypeBytes>>,
+    pub turns: Vec<Option<TypeBytes>>,
 }
 #[derive(Clone)]
 pub struct Export
@@ -108,11 +108,13 @@ pub struct MemSeg
 }
 pub struct Function
 {
-    pub vars: Vec<(u32, TypeBytes)>,
+    pub vars: Vec<(u32, Option<TypeBytes>)>,
     pub code: Vec<Code>
 }
 pub enum Code
 {
+    //The grandest of enumerations!
+    //Codes for the interpreter when running the module
    //flow
     Unreachable,
     Nop,
