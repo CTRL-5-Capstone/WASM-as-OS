@@ -12,6 +12,27 @@ pub struct Module
     pub fcce: Vec<Function>,
     pub mmsg: Vec<MemSeg>,
 }
+impl Module
+{
+    pub fn new() -> Self
+    {
+        Self 
+        {
+            imps: Vec::new(),
+            typs: Vec::new(),
+            fnid: Vec::new(),
+            tabs: Vec::new(),
+            memy: Vec::new(),
+            glob: Vec::new(),
+            exps: Vec::new(),
+            strt: None,
+            elms: Vec::new(),
+            fcce: Vec::new(),
+            mmsg: Vec::new(),
+
+        }
+    }
+}
 #[derive(Clone)]
 pub enum TypeBytes
 {
