@@ -217,34 +217,35 @@ impl Curse
             0x5D => Code::F32Lt,
             0x5E => Code::F32Gt,
             0x5F => Code::F32Le,
-            //F32Ge,
+            0x60 => Code::F32Ge,
             //F64
             //F64Eq,
             //F64Ne,
             //F64Lt,
+            
             //F64Gt,
             //F64Le,
             //F64Ge,
             //Calcs
             //I32
-            //I32Clz,
-            //I32Ctz,
-            //I32Popcnt,
+            0x67 => Code::I32Clz,
+            0x68 => Code::I32Ctz,
+            0x69 => Code::I32Popcnt,
             0x6A => Code::I32Add,
             0x6B => Code::I32Sub,
             0x6C => Code::I32Mul,
             0x6D => Code::I32DivS,
             0x6E => Code::I32DivU,
-            //I32RemS,
-            //I32RemU,
-            //I32And,
-            //I32Or,
-            //I32Xor,
-            //I32Shl,
-            //I32ShrS,
-            //I32ShrU,
-            //I32Rotl,
-            //I32Rotr,
+            0x6F => Code::I32RemS,
+            0x70 => Code::I32RemU,
+            0x71 => Code::I32And,
+            0x72 => Code::I32Or,
+            0x73 => Code::I32Xor,
+            0x74 => Code::I32Shl,
+            0x75 => Code::I32ShrS,
+            0x76 => Code::I32ShrU,
+            0x77 => Code::I32Rotl,
+            0x78 => Code::I32Rotr,
             //I64
             //I64Clz,
             //I64Ctz,
@@ -321,7 +322,7 @@ impl Curse
             //I64ReinterpretF64,
             //F32ReinterpretI32,
             //F64ReinterpretI64,
-            _ => panic!("Invalid ops") //Temp will remove later
+            _ =>{println!("{byte}"); panic!("Invalid ops")}, //Temp will remove later
         }
     }
     //leb decoders
@@ -409,6 +410,52 @@ impl Curse
 
         }
     }
+    pub fn leb_tof32(&mut self) -> f32
+    {
+        let mut bits = Vec::new();
+        for i in 0..4
+        {
+            let byte = self.byte_vec[self.loc];
+            self.loc += 1;
+            bits.push((byte as u32) << (8 * i));
+        }
+        let mut tot = 0;
+        let init = bits[0];
+        for i in bits
+        {
+            if i == init
+            {
+                tot = i;
+            }
+            else{
+                tot |= i
+            }
+        }
+        f32::from_bits(tot)
+    }
+    pub fn leb_tof64(&mut self) -> f64
+    {
+        let mut bits = Vec::new();
+        for i in 0..8
+        {
+            let byte = self.byte_vec[self.loc];
+            self.loc += 1;
+            bits.push((byte as u64) << (8 * i));
+        }
+        let mut tot = 0;
+        let init = bits[0];
+        for i in bits
+        {
+            if i == init
+            {
+                tot = i;
+            }
+            else{
+                tot |= i
+            }
+        }
+        f64::from_bits(tot)
+    }
     pub fn parse_wasm(&mut self) -> Module
     {
         let mut module =  Module::new();
@@ -457,6 +504,47 @@ impl Curse
                         itt += 1;
                     }
                 }
+               /*  2 => {
+                    let mut count = self.leb_tou32();
+                    while count > 0
+                    {
+                        let mod_len = self.leb_tou32() as usize;
+                        let mod_name:String = String::from_utf8(self.byte_vec[self.loc..self.loc+mod_len].to_vec()).unwrap();
+                        self.loc += mod_len;
+                        let name_len = self.leb_tou32() as usize;
+                        let imp_name:String = String::from_utf8(self.byte_vec[self.loc..self.loc+name_len].to_vec()).unwrap();
+                        self.loc += name_len;
+                        let typ = self.byte_vec[self.loc];
+                        self.loc += 1;
+                        let ind = self.leb_tou32();
+                        match typ
+                        {
+                            0x00 =>{
+                                module.imps.push(Import{
+                                    mod_name,
+                                    imp_name,
+                                    ind,
+                                    mem_min: 0,
+                                    mem_max: None,
+                                    tab_min: 0,
+                                    tab_max: None,
+                                    exp_type: ExpTyp::Func,
+                                    ismut: false,
+                                    byte_typs: TypeBytes::I32,
+
+                                });
+                                module.imports += 1;
+                            } 
+                            //0x01 => ExpTyp::Table,
+                            //0x02 => ExpTyp::Memory,
+                            //0x03 => ,
+                            _ => panic!("Crit Byte error!"),
+
+                        };
+                        
+                        count -= 1;
+                    }
+                }*/
                 3 => {
                     let mut count = self.leb_tou32();
                     while count > 0
@@ -482,6 +570,26 @@ impl Curse
                         count -= 1
                     }
                 }
+                6 => {
+                    let mut count = self.leb_tou32();
+                    while count > 0
+                    {
+                        let typ = decode_byte(self.byte_vec[self.loc]).unwrap();
+                        self.loc += 1;
+                        let mutcheck = self.byte_vec[self.loc];
+                        let mut ismut = false;
+                        if mutcheck != 0{ismut = true;}
+                        let mut code = Vec::new();
+                        loop {
+                            let bcode = self.set_code();
+                            let breaker = matches!(bcode, Code::End);
+                            code.push(bcode);
+                            if breaker{break;}
+                        }
+                        count -= 1;
+                        module.glob.push(Global { typ, ismut, code,})
+                    }
+                }
                 7 => {
                     let mut count = self.leb_toi32() as usize;
                     while count > 0
@@ -505,9 +613,13 @@ impl Curse
                         count -= 1;
                     }
                 }
+                8 => {module.strt = Some(self.leb_tou32());}
                 10 => {
                     let mut count = self.leb_tou32() as usize;
-                    while count > 0
+                    let funtot = module.imports as usize + count;
+                    if module.fcce.len() < funtot{module.fcce.resize(funtot, Function { vars: Vec::new(), code: Vec::new()});}
+                    let mut itt = 0;
+                    while itt < count
                     {   
                         let mut vars: Vec<(u32, Option<TypeBytes>)> = Vec::new();
                         let csize = self.leb_tou32() as usize;
@@ -532,8 +644,8 @@ impl Curse
                                 break;
                             }
                         }
-                        count -= 1;
-                        module.fcce.push(Function{vars, code});
+                        module.fcce[module.imports as usize + itt] = (Function{vars, code});
+                        itt += 1;
                     }
                 }
                 _ => self.loc = size, // Skipping other sections until implemented

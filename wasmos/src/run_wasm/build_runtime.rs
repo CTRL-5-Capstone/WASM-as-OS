@@ -22,6 +22,7 @@ pub struct Runtime
     pub mem: Vec<u8>,
     pub calls: Vec<StackCalls>,
     pub stack: Vec<StackTypes>,
+    pub globs: Vec<StackTypes>,
 
 }
 impl Runtime
@@ -32,11 +33,46 @@ impl Runtime
         let mut bytes = to_mem as usize;
         bytes *= 65536;
         let memvec = vec![0; bytes];
+        let mut globs: Vec<StackTypes> = Vec::new();
+        for global in &module.glob 
+        {
+           // for c in global.code{
+                /*let styp = match{
+                    Code::
+                }*/
+            //}
+        }
 
-        Runtime { module, mem: memvec, calls: Vec::new(), stack: Vec::new() }
+        Runtime { module, mem: memvec, calls: Vec::new(), stack: Vec::new(), globs: Vec::new()}
     }
     pub fn run_prog(&mut self) -> Option<StackTypes>
     {
+        if let Some(starter) = self.module.strt
+        {
+
+            let strtind = (starter - self.module.imports) as usize;
+            let typin = self.module.fnid[strtind] as usize;
+            let typ = &self.module.typs[typin];
+            let func = &self.module.fcce[strtind];
+            let vars = Vec::new();
+            for (_loc, typ) in &func.vars
+            {
+                let ty = match typ
+                {
+                    Some(typ) => typ,
+                    None => panic!("typ error run_prog")
+                };
+                let styp = match ty
+                {
+                    TypeBytes::I32 => StackTypes::I32(0),
+                    TypeBytes::I64 => StackTypes::I64(0),
+                    TypeBytes::F32 => StackTypes::F32(0.0),
+                    TypeBytes::F64 => StackTypes::F64(0.0),
+                };
+
+            }
+            self.calls.push(StackCalls { fnid: strtind, code: func.code.clone(), loc: 0, vars,});
+        }
         'run:
         loop {
             let call = match self.calls.last_mut()

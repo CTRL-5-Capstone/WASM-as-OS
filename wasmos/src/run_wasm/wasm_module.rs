@@ -12,6 +12,7 @@ pub struct Module
     pub elms: Vec<Element>,
     pub fcce: Vec<Function>,
     pub mmsg: Vec<MemSeg>,
+    pub imports: u32
 }
 impl Module
 {
@@ -30,6 +31,7 @@ impl Module
             elms: Vec::new(),
             fcce: Vec::new(),
             mmsg: Vec::new(),
+            imports: 0,
 
         }
     }
@@ -64,9 +66,9 @@ pub struct Import
     pub mem_max: Option<u32>,
     pub tab_min: u32,
     pub tab_max: Option<u32>,
-    pub byte_types: TypeBytes,
+    pub exp_type: ExpTyp,
     pub ismut: bool,
-
+    pub byte_typs : TypeBytes,
 }
 #[derive(Clone)]
 pub struct Types
