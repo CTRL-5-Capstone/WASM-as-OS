@@ -37,6 +37,20 @@ mod tests {
         assert!(tmod.imports == 0);
         assert!(tmod.strt.is_none());
     }
+    #[test]//8.2
+    fn test_invalid_parse()
+    {
+        let mut tcurs= Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00], 7);
+        let tmod = tcurs.parse_wasm();
+
+    }
+    #[test]//8.3
+    fn test_bad_wasm()
+    {
+        let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x80, 0x80], 11);
+        tcurs.parse_wasm();
+    }
+
 
 }
 pub struct Curse
