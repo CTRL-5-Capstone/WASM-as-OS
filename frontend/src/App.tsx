@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getTasks, uploadWasm, deleteTask } from "./api";
 
+
 function App() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [file, setFile] = useState<File | null>(null);
