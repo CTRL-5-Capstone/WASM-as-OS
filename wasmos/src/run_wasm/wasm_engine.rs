@@ -1,6 +1,44 @@
 use std::{fs, path::Path};
 use super::wasm_module::*;
 use super::build_runtime::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]//7.1
+    fn test_leb_tou32() 
+    {
+        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
+        let ufromleb = test_cur.leb_tou32();
+        assert!(ufromleb == 624485)
+    }
+    #[test]//7.2
+    fn test_leb_toi32()
+    {
+        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
+        let i32fromleb = test_cur.leb_toi32();
+        assert!(i32fromleb == 624485)
+    }
+    #[test]//7.3
+    fn test_leb_tof32()
+    {
+        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
+        let ufromleb = test_cur.leb_tou32();
+        assert!(ufromleb == 624485)
+    }
+    #[test] //8.1
+    fn test_empty_parse()
+    {
+        let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00], 8);
+        let tmod = tcurs.parse_wasm();
+
+        assert!(tmod.typs.is_empty());
+        assert!(tmod.fcce.is_empty());
+        assert!(tmod.exps.is_empty());
+        assert!(tmod.imports == 0);
+        assert!(tmod.strt.is_none());
+    }
+
+}
 pub struct Curse
 {
     byte_vec: Vec<u8>,
@@ -184,8 +222,8 @@ impl Curse
             //Cons
             0x41 => Code::I32Const(self.leb_toi32()),
             0x42 => Code::I64Const(self.leb_toi64()),
-            //0x43 => Code::F32Const(self.leb_tof32()), func not made yet
-            //0x44 => Code::F64Const(self.leb_tof64()),
+            0x43 => Code::F32Const(self.leb_tof32()), 
+            0x44 => Code::F64Const(self.leb_tof64()),
             //Comps
             //I32,
             0x45 => Code::I32Eqz,
@@ -219,13 +257,12 @@ impl Curse
             0x5F => Code::F32Le,
             0x60 => Code::F32Ge,
             //F64
-            //F64Eq,
-            //F64Ne,
-            //F64Lt,
-            
-            //F64Gt,
-            //F64Le,
-            //F64Ge,
+            0x61 => Code::F64Eq,
+            0x62 => Code::F64Ne,
+            0x63 => Code::F64Lt,
+            0x64 => Code::F64Gt,
+            0x65 => Code::F64Le,
+            0x66 => Code::F64Ge,
             //Calcs
             //I32
             0x67 => Code::I32Clz,
@@ -247,81 +284,81 @@ impl Curse
             0x77 => Code::I32Rotl,
             0x78 => Code::I32Rotr,
             //I64
-            //I64Clz,
-            //I64Ctz,
-            //I64Popcnt,
-            //I64Add,
-            //I64Sub,
-            //I64Mul,
-            //I64DivS,
-            //I64DivU,
-            //I64RemS,
-            //I64RemU,
-            //I64And,
-            //I64Or,
-            //I64Xor,
-            //I64Shl,
-            //I64ShrS,
-            //I64ShrU,
-            //I64Rotl,
-            //I64Rotr,
+            0x79 => Code::I64Clz,
+            0x7A => Code::I64Ctz,
+            0x7B => Code::I64Popcnt,
+            0x7C => Code::I64Add,
+            0x7D => Code::I64Sub,
+            0x7E => Code::I64Mul,
+            0x7F => Code::I64DivS,
+            0x80 => Code::I64DivU,
+            0x81 => Code::I64RemS,
+            0x82 => Code::I64RemU,
+            0x83 => Code::I64And,
+            0x84 => Code::I64Or,
+            0x85 => Code::I64Xor,
+            0x86 => Code::I64Shl,
+            0x87 => Code::I64ShrS,
+            0x88 => Code::I64ShrU,
+            0x89 => Code::I64Rotl,
+            0x8A => Code::I64Rotr,
             //FL
             //F32
-            //F32Abs,
-            //F32Neg,
-            //F32Ceil,
-            //F32Floor,
-            //F32Trunc,
-            //F32Nearest,
-            //F32Sqrt,
-            //F32Add,
-            //F32Sub,
-            //F32Mul,
-            //F32Div,
-            //F32Min,
-            //F32Max,
-            //F32Copysign,
+            0x8B => Code::F32Abs,
+            0x8C => Code::F32Neg,
+            0x8D => Code::F32Ceil,
+            0x8E => Code::F32Floor,
+            0x8F => Code::F32Trunc,
+            0x90 => Code::F32Nearest,
+            0x91 => Code::F32Sqrt,
+            0x92 => Code::F32Add,
+            0x93 => Code::F32Sub,
+            0x94 => Code::F32Mul,
+            0x95 => Code::F32Div,
+            0x96 => Code::F32Min,
+            0x97 => Code::F32Max,
+            0x98 => Code::F32Copysign,
             //F64
-            //F64Abs,
-            //F64Neg,
-            //F64Ceil,
-            //F64Floor,
-            //F64Trunc,
-            //F64Nearest,
-            //F64Sqrt,
-            //F64Add,
-            //F64Sub,
-            //F64Mul,
-            //F64Div,
-            //F64Min,
-            //F64Max,
-            //F64Copysign,
+            0x99 => Code::F64Abs,
+            0x9A => Code::F64Neg,
+            0x9B => Code::F64Ceil,
+            0x9C => Code::F64Floor,
+            0x9D => Code::F64Trunc,
+            0x9E => Code::F64Nearest,
+            0x9F => Code::F64Sqrt,
+            0xA0 => Code::F64Add,
+            0xA1 => Code::F64Sub,
+            0xA2 => Code::F64Mul,
+            0xA3 => Code::F64Div,
+            0xA4 => Code::F64Min,
+            0xA5 => Code::F64Max,
+            0xA6 => Code::F64Copysign,
             //tools
-            //I32WrapI64,
-            //I32TruncF32S,
-            //I32TruncF32U,
-            //I32TruncF64S,
-            //I32TruncF64U,
-            //I64ExtendI32S,
-            //I64ExtendI32U,
-            //I64TruncF32S,
-            //I64TruncF32U,
-            //I64TruncF64S,
-            //I64TruncF64U,
-            //F32ConvertI32S,
-            //F32ConvertI32U,
-            //F32ConvertI64S,
-            //F32ConvertI64U,
-            //F32DemoteF64,
-            //F64ConvertI32S,
-            //F64ConvertI32U,
-            //F64ConvertI64S,
-            //F64ConvertI64U,
-            //F64PromoteF32,
-            //I32ReinterpretF32,
-            //I64ReinterpretF64,
-            //F32ReinterpretI32,
-            //F64ReinterpretI64,
+            0xA7 => Code::I32WrapI64,
+            0xA8 => Code::I32TruncF32S,
+            0xA9 => Code::I32TruncF32U,
+            0xAA => Code::I32TruncF64S,
+            0xAB => Code::I32TruncF64U,
+            0xAC => Code::I64ExtendI32S,
+            0xAD => Code::I64ExtendI32U,
+            0xAE => Code::I64TruncF32S,
+            0xAF => Code::I64TruncF32U,
+            0xB0 => Code::I64TruncF64S,
+            0xB1 => Code::I64TruncF64U,
+            0xB2 => Code::F32ConvertI32S,
+            0xB3 => Code::F32ConvertI32U,
+            0xB4 => Code::F32ConvertI64S,
+            0xB5 => Code::F32ConvertI64U,
+            0xB6 => Code::F32DemoteF64,
+            0xB7 => Code::F64ConvertI32S,
+            0xB8 => Code::F64ConvertI32U,
+            0xB9 => Code::F64ConvertI64S,
+            0xBA => Code::F64ConvertI64U,
+            0xBB => Code::F64PromoteF32,
+            0xBC => Code::I32ReinterpretF32,
+            0xBD => Code::I64ReinterpretF64,
+            0xBE => Code::F32ReinterpretI32,
+            0xBF => Code::F64ReinterpretI64,
             _ =>{println!("{byte}"); panic!("Invalid ops")}, //Temp will remove later
         }
     }
