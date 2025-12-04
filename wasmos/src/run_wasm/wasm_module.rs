@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct Module
 {
     pub imps: Vec<Import>,
@@ -89,28 +90,33 @@ pub enum ExpTyp
     Global,
 
 }
+#[derive(Clone)]
 pub struct Global
 {
     pub typ: TypeBytes,
     pub ismut: bool,
     pub code: Vec<Code>
 }
+#[derive(Clone)]
 pub struct Element
 {
-
+//imp later
 
 }
+#[derive(Clone)]
 pub struct MemSeg
 {
     pub memloc: u32,
     pub code: Vec<Code>,
     pub memcpy: Vec<u8>,
 }
+#[derive(Clone)]
 pub struct Function
 {
     pub vars: Vec<(u32, Option<TypeBytes>)>,
     pub code: Vec<Code>
 }
+#[derive(Clone)]
 pub enum Code
 {
     //The grandest of enumerations!

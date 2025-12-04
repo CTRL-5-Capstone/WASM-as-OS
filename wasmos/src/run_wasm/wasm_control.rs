@@ -48,10 +48,10 @@ pub fn start_wasm(wasm_list: &mut WasmList)
         }
     }
 }
-pub fn pause_wasm(wasm_list: &mut WasmList)
+/*pub fn pause_wasm(wasm_list: &mut WasmList)
 {
     
-}
+}*/
 pub fn halt_wasm(wasm_list: &mut WasmList)
 {
     let wasm_tup = wasm_list.list_runningvec();

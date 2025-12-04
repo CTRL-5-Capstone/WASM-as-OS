@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 use super::wasm_module::*;
+use super::build_runtime::*;
 pub struct Curse
 {
     byte_vec: Vec<u8>,
@@ -482,41 +483,47 @@ impl Curse
                     }
                 }
                 7 => {
-                    let namelen = self.leb_tou32() as usize;
-                    let bytes: Vec<u8> = self.byte_vec[self.loc..namelen+self.loc].to_vec();
-                    let name: String = String::from_utf8(bytes).unwrap();
-                    self.loc += namelen;
-                    let typbyt = self.byte_vec[self.loc];
-                    self.loc += 1;
-                    let typ = match typbyt
+                    let mut count = self.leb_toi32() as usize;
+                    while count > 0
                     {
-                        0x00 => ExpTyp::Func,
-                        0x01 => ExpTyp::Table,
-                        0x02 => ExpTyp::Memory,
-                        0x03 => ExpTyp::Global,
-                        _ => panic!("Invalid wasm binary!"), //temp robust errors later
-                    };
-                    let loc = self.leb_tou32();
-                    module.exps.push(Export{name, loc, typ});
-
+                        let namelen = self.leb_tou32() as usize;
+                        let bytes: Vec<u8> = self.byte_vec[self.loc..namelen+self.loc].to_vec();
+                        let name: String = String::from_utf8(bytes).unwrap();
+                        self.loc += namelen;
+                        let typbyt = self.byte_vec[self.loc];
+                        self.loc += 1;
+                        let typ = match typbyt
+                        {
+                            0x00 => ExpTyp::Func,
+                            0x01 => ExpTyp::Table,
+                            0x02 => ExpTyp::Memory,
+                            0x03 => ExpTyp::Global,
+                            _ => panic!("Invalid wasm binary!"), //temp robust errors later
+                        };
+                        let loc = self.leb_tou32();
+                        module.exps.push(Export{name, loc, typ});
+                        count -= 1;
+                    }
                 }
                 10 => {
-                    while self.loc < size
+                    let mut count = self.leb_tou32() as usize;
+                    while count > 0
                     {   
                         let mut vars: Vec<(u32, Option<TypeBytes>)> = Vec::new();
                         let csize = self.leb_tou32() as usize;
+                        let cend = csize + self.loc;
                         let mut var_count = self.leb_tou32() as usize;
-                        start = self.loc;
-                        var_count += start;
-                        while self.loc < var_count
+                        while var_count > 0
                         {
                             let var = self.leb_tou32();
                             let typ = decode_byte(self.byte_vec[self.loc]);
                             self.loc += 1;
                             vars.push((var, typ));
+                            var_count -= 1;
                         }
                         let mut code: Vec<Code> = Vec::new();
-                        loop {
+                        while self.loc < cend
+                        {
                             let cd = self.set_code();
                             let breaker = matches!(cd, Code::End);
                             code.push(cd);
@@ -525,6 +532,7 @@ impl Curse
                                 break;
                             }
                         }
+                        count -= 1;
                         module.fcce.push(Function{vars, code});
                     }
                 }
@@ -555,7 +563,8 @@ pub fn wasm_engine(file_path: &Path) -> bool
     }
     let leng = wasm_binary.len();
     let mut cursor = Curse::new(wasm_binary, leng);
-    cursor.parse_wasm();
-    
+    let mut module = cursor.parse_wasm();
+    let mut wasm_runner = Runtime::new(module);
+    wasm_runner.run_prog();
     true
 }
