@@ -2,6 +2,42 @@ use dialoguer::{Select, theme::ColorfulTheme};
 use crate::struct_files::wasm_list::*;
 use super::wasm_engine::wasm_engine;
 use std::path::Path;
+
+pub fn start_wasm_by_id(wasm_list: &mut WasmList, id: &str) -> bool {
+    let wasm_tup = wasm_list.list_haltedvec();
+    let wasm_vec = wasm_tup.0;
+    
+    for wasm in wasm_vec {
+        if wasm.lock().unwrap().wasm_file.name == id {
+            let path_name = wasm.lock().unwrap().wasm_file.path_to.clone();
+            let path = Path::new(&path_name);
+            if path.exists() {
+                if wasm_engine(path) {
+                    wasm_list.running_true(wasm.clone());
+                    return true;
+                } else {
+                    // Execution failed
+                    return false;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn halt_wasm_by_id(wasm_list: &mut WasmList, id: &str) -> bool {
+    let wasm_tup = wasm_list.list_runningvec();
+    let wasm_vec = wasm_tup.0;
+    
+    for wasm in wasm_vec {
+        if wasm.lock().unwrap().wasm_file.name == id {
+            wasm_list.running_false(wasm.clone());
+            return true;
+        }
+    }
+    false
+}
+
 pub fn start_wasm(wasm_list: &mut WasmList)
 {
     let wasm_tup = wasm_list.list_haltedvec();
@@ -28,7 +64,7 @@ pub fn start_wasm(wasm_list: &mut WasmList)
             else 
             {
                 //Stop a wasm file here or from a function
-                let path_name = &wasm_vec[choice - 1].borrow().wasm_file.path_to.clone();
+                let path_name = &wasm_vec[choice - 1].lock().unwrap().wasm_file.path_to.clone();
                 let path = Path::new(&path_name);
                 if path.exists()
                 {
@@ -48,10 +84,10 @@ pub fn start_wasm(wasm_list: &mut WasmList)
         }
     }
 }
-/*pub fn pause_wasm(wasm_list: &mut WasmList)
+pub fn pause_wasm(wasm_list: &mut WasmList)
 {
     
-}*/
+}
 pub fn halt_wasm(wasm_list: &mut WasmList)
 {
     let wasm_tup = wasm_list.list_runningvec();
