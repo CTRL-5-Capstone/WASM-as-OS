@@ -4,65 +4,74 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inspect - WASM-OS</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        border: "hsl(217.2 32.6% 17.5%)",
-                        background: "hsl(222.2 84% 4.9%)",
-                        foreground: "hsl(210 40% 98%)",
-                        primary: { DEFAULT: "hsl(210 40% 98%)", foreground: "hsl(222.2 47.4% 11.2%)" },
-                        secondary: { DEFAULT: "hsl(217.2 32.6% 17.5%)", foreground: "hsl(210 40% 98%)" },
-                        muted: { DEFAULT: "hsl(217.2 32.6% 17.5%)", foreground: "hsl(215 20.2% 65.1%)" },
-                        accent: { DEFAULT: "hsl(217.2 32.6% 17.5%)", foreground: "hsl(210 40% 98%)" },
-                        card: { DEFAULT: "hsl(222.2 84% 4.9%)", foreground: "hsl(210 40% 98%)" },
-                    }
-                }
-            }
-        }
-    </script>
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 24 24' stroke='%23ffffff' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z'/%3E%3C/svg%3E">
 </head>
-<body class="bg-background text-foreground">
-    <nav class="bg-card border-b border-border sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-6 py-4">
-            <div class="flex items-center justify-between">
-                <div class="text-2xl font-bold text-primary">WASM-OS</div>
-                <div class="flex gap-2">
-                    <a href="../index.html" class="px-4 py-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground">Dashboard</a>
-                    <a href="tasks.html" class="px-4 py-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground">Tasks</a>
-                    <a href="execute.html" class="px-4 py-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground">Execute</a>
-                    <a href="inspect.html" class="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium">Inspect</a>
-                    <a href="monitor.html" class="px-4 py-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground">Monitor</a>
-                </div>
-            </div>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="icon icon-brand icon-cpu"></span>
+            WASM-OS
         </div>
+        <ul class="nav-menu">
+            <li><a href="../index.html">
+                <span class="icon icon-dashboard"></span>Dashboard
+            </a></li>
+            <li><a href="tasks.html">
+                <span class="icon icon-tasks"></span>Tasks
+            </a></li>
+            <li><a href="execute.html">
+                <span class="icon icon-execute"></span>Execute
+            </a></li>
+            <li><a href="inspect.html" class="active">
+                <span class="icon icon-inspect"></span>Inspect
+            </a></li>
+            <li><a href="monitor.html">
+                <span class="icon icon-monitor"></span>Monitor
+            </a></li>
+        </ul>
     </nav>
 
-    <div class="max-w-7xl mx-auto px-6 py-8">
-        <h1 class="text-4xl font-bold mb-8">WASM Module Inspector</h1>
-
-        <div class="bg-card rounded-xl border border-border p-6 mb-6">
-            <h2 class="text-xl font-semibold mb-4">Upload Module for Inspection</h2>
-            <form id="inspectForm" class="flex gap-4">
-                <input type="file" id="inspectWasmFile" accept=".wasm" required class="flex-1 px-4 py-2 bg-secondary border border-border rounded-lg text-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary file:text-primary-foreground file:cursor-pointer">
-                <button type="submit" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">Inspect Module</button>
-            </form>
+    <div class="container">
+        <h1>Inspect WASM Modules</h1>
+        
+        <div class="section">
+            <h2>
+                <span class="icon icon-tasks"></span>
+                Select Task to Inspect
+            </h2>
+            <select id="taskSelect" class="form-select">
+                <option value="">Loading tasks...</option>
+            </select>
         </div>
 
-        <div class="bg-card rounded-xl border border-border p-6 mb-6">
-            <h2 class="text-xl font-semibold mb-4">Module Information</h2>
-            <div id="moduleInfo" class="text-muted-foreground">
-                <p>Upload a WASM module to inspect its structure</p>
+        <div class="section">
+            <h2>
+                <span class="icon icon-wasm"></span>
+                Task Details
+            </h2>
+            <div id="taskDetails" class="info-box">
+                <div class="no-data">Select a task to view details</div>
             </div>
         </div>
 
-        <div class="bg-card rounded-xl border border-border p-6">
-            <h2 class="text-xl font-semibold mb-4">Security Analysis</h2>
-            <div id="securityAnalysis" class="text-muted-foreground">
-                <p>Security analysis will appear here</p>
+        <div class="section">
+            <h2>
+                <span class="icon icon-settings"></span>
+                Debug Information
+            </h2>
+            <div id="debugInfo" class="info-box">
+                <div class="no-data">Select a task to view debug information</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>
+                <span class="icon icon-security"></span>
+                Security Analysis
+            </h2>
+            <div id="securityAnalysis" class="info-box">
+                <div class="no-data">Select a task to view security analysis</div>
             </div>
         </div>
     </div>
