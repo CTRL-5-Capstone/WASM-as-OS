@@ -1,3 +1,5 @@
+use core::panic;
+
 use super::wasm_module::*;
 #[derive(Clone)]
 pub enum StackTypes
@@ -116,7 +118,12 @@ impl Runtime
 //                Code::Unreachable => //log::info!("Unreachable"),
 //                Code::Nop => //log::info!("Nop"),
 //                Code::Block(typ) => //log::info!("Block: {}", typ),
-//                Code::Loop(typ) => //log::info!("Loop: {}", typ),
+//                Code::Loop(typ) => {
+                    
+                    
+                    
+                    //log::info!("Loop: {}", typ)
+//                },
 //                Code::If(typ) => //log::info!("If: {}", typ),
 //                Code::Else => //log::info!("Else"),
 //                Code::Br(us) => //log::info!("Br: {}", us),
@@ -405,17 +412,160 @@ impl Runtime
                 },
                 //Comps
                 //I32
-//                Code::I32Eqz => (),
-//                Code::I32Eq => (),
-//                Code::I32Ne => (),
-//                Code::I32LtS => (),
-//                Code::I32LtU => (),
-//                Code::I32GtS => (),
-//                Code::I32GtU => (),
-//                Code::I32LeS => (),
-//                Code::I32LeU => (),
-//                Code::I32GeS => (),
-//                Code::I32GeU => (),
+                Code::I32Eqz => {
+                    let i_val = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    match i_val
+                    {
+                        0 => self.stack.push(StackTypes::I32(1)),
+                        _ => self.stack.push(StackTypes::I32(0)),
+                    }
+
+                },
+                Code::I32Eq => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 == val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32Ne => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 != val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32LtS => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 < val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32LtU => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 < val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32GtS => 
+                {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 > val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32GtU => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 > val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32LeS => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 <= val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32LeU => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 <= val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32GeS => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 >= val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
+                Code::I32GeU => {
+                    let val2 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v2)) => v2 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(v1)) => v1 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 >= val2 {self.stack.push(StackTypes::I32(1));}
+                    else {self.stack.push(StackTypes::I32(0));}
+                },
                 //I64
 //                Code::I64Eqz => (),
 //                Code::I64Eq => (),
