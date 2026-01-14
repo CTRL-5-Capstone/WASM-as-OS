@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 dialoguer = "0.11" #Menu
 clearscreen = "4.0.2" #Clear Screen
+simple-logging = "2.0.2"
+log = "0.4"
 
 #For .wasm file detection
 directories = "5.0" 

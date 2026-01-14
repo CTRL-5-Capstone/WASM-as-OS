@@ -123,6 +123,11 @@ pub enum Code
 {
     //The grandest of enumerations!
     //Codes for the interpreter when running the module
+
+    //I32
+    I32Eqz,
+    I32Eq,
+    I32Ne,
    //flow
     Unreachable,
     Nop,
@@ -186,11 +191,7 @@ pub enum Code
     I64Const(i64),
     F32Const(f32),
     F64Const(f64),
-    //Comps
-    //I32
-    I32Eqz,
-    I32Eq,
-    I32Ne,
+    //Comps    
     I32LtS,
     I32LtU,
     I32GtS,
