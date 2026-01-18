@@ -1,58 +1,7 @@
 use std::{fs, path::Path};
 use super::wasm_module::*;
 use super::build_runtime::*;
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]//7.1
-    fn test_leb_tou32() 
-    {
-        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
-        let ufromleb = test_cur.leb_tou32();
-        assert!(ufromleb == 624485)
-    }
-    #[test]//7.2
-    fn test_leb_toi32()
-    {
-        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
-        let i32fromleb = test_cur.leb_toi32();
-        assert!(i32fromleb == 624485)
-    }
-    #[test]//7.3
-    fn test_leb_tof32()
-    {
-        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
-        let ufromleb = test_cur.leb_tou32();
-        assert!(ufromleb == 624485)
-    }
-    #[test] //8.1
-    fn test_empty_parse()
-    {
-        let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00], 8);
-        let tmod = tcurs.parse_wasm();
 
-        assert!(tmod.typs.is_empty());
-        assert!(tmod.fcce.is_empty());
-        assert!(tmod.exps.is_empty());
-        assert!(tmod.imports == 0);
-        assert!(tmod.strt.is_none());
-    }
-    #[test]//8.2
-    fn test_invalid_parse()
-    {
-        let mut tcurs= Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00], 7);
-        let tmod = tcurs.parse_wasm();
-
-    }
-    #[test]//8.3
-    fn test_bad_wasm()
-    {
-        let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x80, 0x80], 11);
-        tcurs.parse_wasm();
-    }
-
-
-}
 pub struct Curse
 {
     byte_vec: Vec<u8>,
@@ -114,120 +63,120 @@ impl Curse
             //Mem
             //LD
             0x28 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I32Load(off)
             },
             0x29 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Load(off)
             },
             0x2A => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::F32Load(off)
             },
             0x2B => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::F64Load(off)
             },
             //I32
             0x2C => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I32Load8S(off)
             },
             0x2D => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I32Load8U(off)
             },
             0x2E => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I32Load16S(off)
             },
             0x2F => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I32Load16U(off)
             },
             //I64
             0x30 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Load8S(off)
             },
             0x31 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Load8U(off)
             },
             0x32 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Load16S(off)
         },
             0x33 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Load16U(off)
         },
             0x34 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Load32S(off)    
             },
             0x35 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Load32U(off)
             },
             //STR
             0x36 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I32Store(off)
             },
             0x37 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Store(off)
             },
             0x38 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::F32Store(off)
             },
             0x39 => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::F64Store(off)
             },
             0x3A => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I32Store8(off)
             },
             0x3B => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I32Store16(off)
             },
             0x3C => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Store8(off)
             },
             0x3D => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Store16(off)
         },
             0x3E => {
-                let waste = self.leb_tou32();
+                let _waste = self.leb_tou32();
                 let off = self.leb_tou32();
                 Code::I64Store32(off)
             },
@@ -442,7 +391,6 @@ impl Curse
     {
         let mut decoded: u32 = 0;
         let mut shifter: u32 = 0;
-        let mut shifty = 0;
         loop 
         {
             if self.loc >= self.len || shifter > 35
@@ -451,7 +399,7 @@ impl Curse
             }
             let byte = self.byte_vec[self.loc];
             self.loc += 1;
-            shifty = (byte & 0x7F) as u32;
+            let shifty = (byte & 0x7F) as u32;
             decoded |= shifty << shifter;
             if(byte & 0x80) == 0
             {
@@ -666,7 +614,7 @@ impl Curse
                 }
                 8 => {module.strt = Some(self.leb_tou32());}
                 10 => {
-                    let mut count = self.leb_tou32() as usize;
+                    let count = self.leb_tou32() as usize;
                     let funtot = module.imports as usize + count;
                     if module.fcce.len() < funtot{module.fcce.resize(funtot, Function { vars: Vec::new(), code: Vec::new()});}
                     let mut itt = 0;
@@ -695,7 +643,7 @@ impl Curse
                                 break;
                             }
                         }
-                        module.fcce[module.imports as usize + itt] = (Function{vars, code});
+                        module.fcce[module.imports as usize + itt] = Function{vars, code};
                         itt += 1;
                     }
                 }
@@ -726,8 +674,65 @@ pub fn wasm_engine(file_path: &Path) -> bool
     }
     let leng = wasm_binary.len();
     let mut cursor = Curse::new(wasm_binary, leng);
-    let mut module = cursor.parse_wasm();
+    let module = cursor.parse_wasm();
     let mut wasm_runner = Runtime::new(module);
     wasm_runner.run_prog();
     true
+}
+
+
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]//7.1
+    fn test_leb_tou32() 
+    {
+        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
+        let ufromleb = test_cur.leb_tou32();
+        assert!(ufromleb == 624485)
+    }
+    #[test]//7.2
+    fn test_leb_toi32()
+    {
+        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
+        let i32fromleb = test_cur.leb_toi32();
+        assert!(i32fromleb == 624485)
+    }
+    #[test]//7.3
+    fn test_leb_tof32()
+    {
+        let mut test_cur = Curse::new(vec![0xE5, 0x8E, 0x26], 3);
+        let ufromleb = test_cur.leb_tou32();
+        assert!(ufromleb == 624485)
+    }
+    #[test] //8.1
+    fn test_empty_parse()
+    {
+        let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00], 8);
+        let tmod = tcurs.parse_wasm();
+
+        assert!(tmod.typs.is_empty());
+        assert!(tmod.fcce.is_empty());
+        assert!(tmod.exps.is_empty());
+        assert!(tmod.imports == 0);
+        assert!(tmod.strt.is_none());
+    }
+    #[test]//8.2
+    fn test_invalid_parse()
+    {
+        let mut tcurs= Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00], 7);
+        let _tmod = tcurs.parse_wasm();
+
+    }
+    #[test]//8.3
+    fn test_bad_wasm()
+    {
+        let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x80, 0x80], 11);
+        tcurs.parse_wasm();
+    }
+
+
 }

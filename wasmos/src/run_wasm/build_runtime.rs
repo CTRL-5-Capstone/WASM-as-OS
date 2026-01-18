@@ -1,4 +1,5 @@
 use core::panic;
+use std::convert;
 
 use super::wasm_module::*;
 #[derive(Clone)]
@@ -31,7 +32,7 @@ impl Runtime
 {
     pub fn new(module: Module) -> Self
     {
-        let to_mem = module.memy.get(0).map(|(min, _max)| *min).unwrap_or(1);
+        let to_mem = module.memy.first().map(|(min, _max)| *min).unwrap_or(1);
         let mut bytes = to_mem as usize;
         bytes *= 65536;
         let memvec = vec![0; bytes];
@@ -57,7 +58,7 @@ impl Runtime
     }
     pub fn run_prog(&mut self) -> Option<StackTypes>
     {
-        simple_logging::log_to_file("wasm.log", log::LevelFilter::Info);
+        //simple_logging::log_to_file("wasm.log", log::LevelFilter::Info);
         //log::info!("Wasm running");
         if let Some(starter) = self.module.strt
         {
@@ -199,11 +200,11 @@ impl Runtime
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Stack Error Select"),
                     };
-                    let y = self.stack.pop().expect("Stack Sel Fail");
-                    let x = self.stack.pop().expect("Stack Sel Fail");
+                    let val2 = self.stack.pop().expect("Stack Sel Fail");
+                    let val1 = self.stack.pop().expect("Stack Sel Fail");
 
-                    if sel != 0 {self.stack.push(x);}
-                    else{self.stack.push(y);}
+                    if sel != 0 {self.stack.push(val1);}
+                    else{self.stack.push(val2);}
                 },
                 //Vars
                 Code::LocalGet(loc) => {
@@ -305,15 +306,15 @@ impl Runtime
                 //STR
                 Code::I32Store(off) =>
                 {
-                    let memloc = match self.stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val as u32,
-                        _ => panic!("Store Stack Err"),
-                    };
                     let var = match self.stack.pop()
                     {
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Store Stack err"),
+                    };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Store Stack Err"),
                     };
                     let uloc = (off + memloc) as usize;
                     let bytes = var.to_le_bytes();
@@ -322,15 +323,15 @@ impl Runtime
                 },
                 Code::I64Store(off) =>
                 {
-                    let memloc = match self.stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val as u32,
-                        _ => panic!("Store Stack Err"),
-                    };
                     let var = match self.stack.pop()
                     {
                         Some(StackTypes::I64(val)) => val,
                         _ => panic!("Store Stack err"),
+                    };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Store Stack Err"),
                     };
                     let uloc = (off + memloc) as usize;
                     let bytes = var.to_le_bytes();
@@ -338,15 +339,15 @@ impl Runtime
                 },
                 Code::F32Store(off) =>
                 {
-                    let memloc = match self.stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val as u32,
-                        _ => panic!("Store Stack Err"),
-                    };
                     let var = match self.stack.pop()
                     {
                         Some(StackTypes::F32(val)) => val,
                         _ => panic!("Store Stack err"),
+                    };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Store Stack Err"),
                     };
                     let uloc = (off + memloc) as usize;
                     let bytes = var.to_le_bytes();
@@ -354,25 +355,95 @@ impl Runtime
                 },
                 Code::F64Store(off) =>
                 {
-                    let memloc = match self.stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val as u32,
-                        _ => panic!("Store Stack Err"),
-                    };
                     let var = match self.stack.pop()
                     {
                         Some(StackTypes::F64(val)) => val,
                         _ => panic!("Store Stack err"),
                     };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Store Stack Err"),
+                    };
                     let uloc = (off + memloc) as usize;
                     let bytes = var.to_le_bytes();
                     self.mem[uloc..uloc + 8].copy_from_slice(&bytes);
                 },
-//                Code::I32Store8(u32),
-//                Code::I32Store16(u32),
-//                Code::I64Store8(u32),
-//                Code::I64Store16(u32),
-//                Code::I64Store32(u32),
+                Code::I32Store8(off) =>
+                {
+                    let var = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u8,
+                        _ => panic!("Invalid stacktype I32Store8"), 
+                    };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stacktype I32Store8"),
+                    };
+                    let uloc = (off + memloc) as usize;
+                    self.mem[uloc] = var; 
+                },
+                Code::I32Store16(off) =>
+                {
+                    let var = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u16,
+                        _ => panic!("Invalid stacktype I32Store8"), 
+                    };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stacktype I32Store8"),
+                    };
+                    let uloc = (off + memloc) as usize;
+                    self.mem[uloc..uloc + 2].copy_from_slice(&var.to_le_bytes()); 
+                },
+                Code::I64Store8(off) =>
+                {
+                    let var = match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val as u8,
+                        _ => panic!("Invalid stacktype I32Store8"), 
+                    };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stacktype I32Store8"),
+                    };
+                    let uloc = (off + memloc) as usize;
+                    self.mem[uloc..uloc + 2].copy_from_slice(&var.to_le_bytes()); 
+                },
+                Code::I64Store16(off) =>
+                {
+                    let var = match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val as u16,
+                        _ => panic!("Invalid stacktype I32Store8"), 
+                    };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stacktype I32Store8"),
+                    };
+                    let uloc = (off + memloc) as usize;
+                    self.mem[uloc..uloc + 4].copy_from_slice(&var.to_le_bytes()); 
+                },
+                Code::I64Store32(off) =>
+                {
+                    let var = match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val as u32,
+                        _ => panic!("Invalid stacktype I32Store8"), 
+                    };
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stacktype I32Store8"),
+                    };
+                    let uloc = (off + memloc) as usize;
+                    self.mem[uloc..uloc + 8].copy_from_slice(&var.to_le_bytes()); 
+                },
                 Code::MemorySize => 
                 {
                     let memlen = self.mem.len();
@@ -892,45 +963,45 @@ impl Runtime
 //               Code::I32Ctz => (),
 //                Code::I32Popcnt => (),
                 Code::I32Add => {
-                    let x = match self.stack.pop()
+                    let val2 = match self.stack.pop()
                     {
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Add error"),
                     };
-                    let y = match self.stack.pop()
+                    let val1 = match self.stack.pop()
                     {
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Add error"),
                     };
-                    self.stack.push(StackTypes::I32(y+x));
+                    self.stack.push(StackTypes::I32(val1+val2));
                     //log::info!("I32 Add: {} + {}", y, x);
                 },
                 Code::I32Sub => {
-                    let x = match self.stack.pop()
+                    let val2 = match self.stack.pop()
                     {
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Sub error"),
                     };
-                    let y = match self.stack.pop()
+                    let val1 = match self.stack.pop()
                     {
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Sub error"),
                     };
-                    self.stack.push(StackTypes::I32(y-x));
+                    self.stack.push(StackTypes::I32(val1-val2));
                     //log::info!("I32 Subtract: {} - {}", y, x);
                 },
                 Code::I32Mul => {
-                    let x = match self.stack.pop()
+                    let val2 = match self.stack.pop()
                     {
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Mul error"),
                     };
-                    let y = match self.stack.pop()
+                    let val1 = match self.stack.pop()
                     {
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Mul error"),
                     };    
-                    self.stack.push(StackTypes::I32(y*x));
+                    self.stack.push(StackTypes::I32(val1*val2));
                     //log::info!("I32 Multiplication: {} * {}", y, x);
                 },
 //                Code::I32DivS => (),
@@ -996,32 +1067,275 @@ impl Runtime
 //                Code::F64Max => (),
 //                Code::F64Copysign => (),
                 //tools
-//                Code::I32WrapI64 => (),
-//                Code::I32TruncF32S => (),
-//                Code::I32TruncF32U => (),
-//                Code::I32TruncF64S => (),
-//                Code::I32TruncF64U => (),
-//                Code::I64ExtendI32S => (),
-//                Code::I64ExtendI32U => (),
-//                Code::I64TruncF32S => (),
-//                Code::I64TruncF32U => (),
-//                Code::I64TruncF64S => (),
-//                Code::I64TruncF64U => (),
-//                Code::F32ConvertI32S => (),
-//                Code::F32ConvertI32U => (),
-//                Code::F32ConvertI64S => (),
-//                Code::F32ConvertI64U => (),
-//                Code::F32DemoteF64 => (),
-//                Code::F64ConvertI32S => (),
-//                Code::F64ConvertI32U => (),
-//                Code::F64ConvertI64S => (),
-//                Code::F64ConvertI64U => (),
-//                Code::F64PromoteF32 => (),
-//                Code::I64ReinterpretF64 => (),
-//                Code::I32ReinterpretF32 => (),
-//                Code::F64ReinterpretI64 => (),
-//                Code::F32ReinterpretI32 => (),
-
+                Code::I32WrapI64 => 
+                {
+                    let wrapped = match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val as i32,
+                        _ => panic!("Invalid Stack Type I32WrapI64"),
+                    };
+                    self.stack.push(StackTypes::I32(wrapped));
+                },
+                Code::I32TruncF32S => 
+                {
+                    let trunced = match self.stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val as i32,
+                        _ => panic!("Invalid Stack Type I32WrapF32S"),
+                    };
+                    self.stack.push(StackTypes::I32(trunced))
+                },
+                Code::I32TruncF32U => 
+                {
+                    let trunced = match self.stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => {
+                            if val < 0.0
+                            {
+                                panic!("Floating point number is less than 0 I32TruncF32u");
+                            }
+                            val as u32
+                        },
+                        _ => panic!("Invalid Stack Type I32TruncF32U"),
+                    };
+                    let sender = trunced as i32;
+                    self.stack.push(StackTypes::I32(sender));
+                },
+                Code::I32TruncF64S => 
+                {
+                    let trunced = match self.stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val as i32,
+                        _ => panic!("Stack type is not a F64 I32TruncF64S"),
+                    };
+                    self.stack.push(StackTypes::I32(trunced));
+                },
+                Code::I32TruncF64U => 
+                {
+                    let trunced = match self.stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) =>
+                        {
+                            if val < 0.0
+                            {
+                                panic!("Float is less than 0 I32TruncF64U");
+                            }
+                            val as u32
+                        },
+                        _ => panic!("Stack type is not a F64 I32TruncF64U"),
+                    };
+                    self.stack.push(StackTypes::I32(trunced as i32));
+                },
+                Code::I64ExtendI32S => 
+                {
+                    let extend = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as i64,
+                        _ => panic!("Stack type is not I32 I64extendI32S"),
+                    };
+                    self.stack.push(StackTypes::I64(extend));
+                },  
+                Code::I64ExtendI32U => 
+                {
+                    let extend = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) =>
+                        {
+                            if val < 0
+                            {
+                                panic!("I32 Value is less than 0 I64ExtendI32U");
+                            }
+                            val as u64
+                        },
+                        _ => panic!("Stack type is not I32 I64ExtendI32U"),
+                    };
+                    self.stack.push(StackTypes::I64(extend as i64));
+                },
+                Code::I64TruncF32S => 
+                {
+                    let trunced = match self.stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val as i64,
+                        _ => panic!("Stack type is not F32 I64TruncF32S"),
+                    };
+                    self.stack.push(StackTypes::I64(trunced));
+                },
+                Code::I64TruncF32U => 
+                {
+                    let trunced = match self.stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) =>
+                        {
+                            if val < 0.0
+                            {
+                                panic!("F32 Value is less than 0 I64TruncF32U");
+                            }
+                            val as u32
+                        },
+                        _ => panic!("Stack type is not F32 I64TruncF32U"),
+                    };
+                    self.stack.push(StackTypes::I64(trunced as i64));
+                },
+                Code::I64TruncF64S => 
+                {
+                    let trunced = match self.stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val as i64,
+                        _ => panic!("Stack type is not F64 I64TruncF64S"),
+                    };
+                    self.stack.push(StackTypes::I64(trunced));
+                },
+                Code::I64TruncF64U => 
+                {
+                    let trunced = match self.stack.pop()
+                    {  
+                        Some(StackTypes::F64(val)) =>
+                        {
+                            if val < 0.0
+                            {
+                                panic!("Floating point value less than zero I64TruncF64U");
+                            }
+                            val as u64
+                        },
+                        _ => panic!("Stack type is not F64 I64TruncF64U"),
+                    };
+                    self.stack.push(StackTypes::I64(trunced as i64));
+                },
+                Code::F32ConvertI32S => 
+                {
+                    let converted = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as f32,
+                        _ => panic!("Stack type is not I32 F32ConvertI32S"),
+                    };
+                    self.stack.push(StackTypes::F32(converted));
+                },
+                Code::F32ConvertI32U => 
+                {
+                    let converted = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => 
+                        {
+                            if val < 0
+                            {
+                                panic!("I32 value less than zero F32ConvertI32U");
+                            }
+                            val as f32
+                        },
+                        _=> panic!("Stack type not I32 F32ConvertI32U"),
+                    };
+                    self.stack.push(StackTypes::F32(converted));
+                },
+                Code::F32ConvertI64S => 
+                {
+                    let converted = match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val as f32,
+                        _ => panic!("Stack type not I64 F32ConvertI64S"),
+                    };
+                    self.stack.push(StackTypes::F32(converted));
+                },
+                Code::F32ConvertI64U => 
+                {
+                    let converted = match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) =>
+                        {
+                            if val < 0 {panic!("I64 value less than zero F32ConvertI64U");}
+                            val as f32
+                        },
+                        _ => panic!("Stack type not I64 F32ConvertI64U"),
+                    };
+                    self.stack.push(StackTypes::F32(converted));
+                },
+                Code::F32DemoteF64 => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => self.stack.push(StackTypes::F32(val as f32)),
+                        _ => panic!("Stack type not F64 F32DemoteF64"),
+                    }
+                },
+                Code::F64ConvertI32S => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => self.stack.push(StackTypes::F64(val as f64)),
+                        _ => panic!("Stack type not I32 F64ConvertI32"),
+                    }
+                },
+                Code::F64ConvertI32U => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) =>
+                        {
+                            if val < 0 {panic!("I32 value is less than 0 F64ConvertI32U");}
+                            self.stack.push(StackTypes::F64(val as f64));
+                        }
+                        _ => panic!("Stack type not I32 F64ConvertI32U"),
+                    }
+                },
+                Code::F64ConvertI64S => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => self.stack.push(StackTypes::F64(val as f64)),
+                        _ => panic!("Stack type not I64 F64ConvertI64S"),
+                    }
+                },
+                Code::F64ConvertI64U => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) =>
+                        {
+                            if val < 0 {panic!("I64 value less than zero F64ConvertI64U");}
+                            self.stack.push(StackTypes::F64(val as f64));
+                        },
+                        _ => panic!("Stack type not I64 F64ConvertI64U"),
+                    }
+                },
+                Code::F64PromoteF32 => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => self.stack.push(StackTypes::F64(val as f64)),
+                        _ => panic!("Stack type not I32 F64PromoteF32"),
+                    }
+                },
+                Code::I64ReinterpretF64 => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => self.stack.push(StackTypes::I64(f64::to_bits(val) as i64)),
+                        _ => panic!("Stack type not F64 I64ReinterpretF64"),
+                    }
+                },
+                Code::I32ReinterpretF32 => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => self.stack.push(StackTypes::I32(val.to_bits() as i32)),
+                        _ => panic!("Stack type not F32 I32 ReinterpretF32"),
+                    }
+                },
+                Code::F64ReinterpretI64 => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => self.stack.push(StackTypes::F64(f64::from_bits(val as u64))),
+                        _ => panic!("Stack type not I64 F64ReinterpretI64"),
+                    }
+                },
+                Code::F32ReinterpretI32 => 
+                {
+                    match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => self.stack.push(StackTypes::F32(f32::from_bits(val as u32))),
+                        _ => panic!("Stack type not I32 F32ReinterpretI32"),
+                    }
+                },
                 _ => panic!("Unsupported Type"),
             }
         }
