@@ -1,5 +1,4 @@
 use core::panic;
-use std::convert;
 
 use super::wasm_module::*;
 #[derive(Clone)]
@@ -77,7 +76,7 @@ impl Runtime
                 let styp = match ty
                 {
                     TypeBytes::I32 => StackTypes::I32(0),
-                    TypeBytes::I64 => StackTypes::I32(0),
+                    TypeBytes::I64 => StackTypes::I64(0),
                     TypeBytes::F32 => StackTypes::F32(0.0),
                     TypeBytes::F64 => StackTypes::F64(0.0),
                 };
@@ -174,7 +173,7 @@ impl Runtime
                         let var = match ty 
                         {
                             TypeBytes::I32 => StackTypes::I32(0),
-                            TypeBytes::I64 => StackTypes::I32(0),
+                            TypeBytes::I64 => StackTypes::I64(0),
                             TypeBytes::F32 => StackTypes::F32(0.0),
                             TypeBytes::F64 => StackTypes::F64(0.0),
                         };
@@ -292,16 +291,102 @@ impl Runtime
                     self.stack.push(StackTypes::F64(to_stack));
                 },
                 //I32
-//                Code::I32Load8S(u32),
-//                Code::I32Load8U(u32),
-//                Code::I32Load16S(u32),
-//                Code::I32Load16U(u32),
+                Code::I32Load8S(off) => 
+                {
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(loc)) => loc as u32,
+                        _ => panic!("Invalid stack type exp i32. I32Load8S"),
+                    };
+                    let offloc = (off + memloc) as usize;
+                    let val = self.mem[offloc] as i8;
+                    self.stack.push(StackTypes::I32(val as i32));
+                },
+                Code::I32Load8U(off) =>
+                {
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(loc)) => loc as u32,
+                        _ => panic!("Invalid stack type exp i32. I32Load8U"),
+                    };
+                    let offloc = (off + memloc) as usize;
+                    let val = self.mem[offloc] as u8;
+                    self.stack.push(StackTypes::I32(val as i32));
+
+                },
+                Code::I32Load16S(off) =>
+                {
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stack type exp i32. I32Load16S"),
+                    };
+                    let offloc = (off + memloc) as usize;
+                    let bytes = &self.mem[offloc..offloc + 2];
+                    let val = i16::from_le_bytes([bytes[0], bytes[1]]);
+                    self.stack.push(StackTypes::I32(val as i32));
+                },
+                Code::I32Load16U(off) => 
+                {
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stack type exp i32. I32Load16S"),
+                    };
+                    let offloc = (off + memloc) as usize;
+                    let bytes = &self.mem[offloc..offloc + 2];
+                    let val = i16::from_le_bytes([bytes[0], bytes[1]]);
+                    if val < 0 {panic!("Byte value less than 0 I32LoadI16U");}
+                    self.stack.push(StackTypes::I32(val as i32));
+                },
                 //I64
-//                Code::I64Load8S(u32),
-//                Code::I64Load8U(u32),
-//                Code::I64Load16S(u32),
+                Code::I64Load8S(off) =>
+                {
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stack type exp i32. I64Load8S"),
+                    };
+                    let offloc = (off + memloc) as usize;
+                    let val = self.mem[offloc] as i8 as i64;
+                    self.stack.push(StackTypes::I64(val));
+                },
+                Code::I64Load8U(off) => 
+                {
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stack type exp i32. I64Load8U"),
+                    };
+                    let offloc = (memloc + off) as usize;
+                    let val = self.mem[offloc] as u8 as i64;
+                    self.stack.push(StackTypes::I64(val));
+                },
+                Code::I64Load16S(off) =>
+                {
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stack type exp i32. I64Load16S"),
+                    };
+                    let offloc = (off + memloc) as usize;
+                    let bytes = &self.mem[offloc..offloc + 2];
+                    let val = u16::from_le_bytes([bytes[0], bytes[1]]);
+                    self.stack.push(StackTypes::I64(val as i64));
+                },
 //                Code::I64Load16U(u32),
-//                Code::I64Load32S(u32),
+                Code::I64Load32S(off) =>
+                {
+                    let memloc = match self.stack.pop()
+                    {
+                        Some(StackTypes::I32(val)) => val as u32,
+                        _ => panic!("Invalid stack type exp i32. I64Load32S"),
+                    };
+                    let offloc = (off + memloc) as usize;
+                    let bytes = &self.mem[offloc..offloc + 4];
+                    let val = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                    self.stack.push(StackTypes::I64(val as i64));
+                },
 //                Code::I64Load32U(u32),
                 //STR
                 Code::I32Store(off) =>
@@ -412,7 +497,7 @@ impl Runtime
                         _ => panic!("Invalid stacktype I32Store8"),
                     };
                     let uloc = (off + memloc) as usize;
-                    self.mem[uloc..uloc + 2].copy_from_slice(&var.to_le_bytes()); 
+                    self.mem[uloc] = var; 
                 },
                 Code::I64Store16(off) =>
                 {
@@ -427,7 +512,7 @@ impl Runtime
                         _ => panic!("Invalid stacktype I32Store8"),
                     };
                     let uloc = (off + memloc) as usize;
-                    self.mem[uloc..uloc + 4].copy_from_slice(&var.to_le_bytes()); 
+                    self.mem[uloc..uloc + 2].copy_from_slice(&var.to_le_bytes()); 
                 },
                 Code::I64Store32(off) =>
                 {
@@ -442,7 +527,7 @@ impl Runtime
                         _ => panic!("Invalid stacktype I32Store8"),
                     };
                     let uloc = (off + memloc) as usize;
-                    self.mem[uloc..uloc + 8].copy_from_slice(&var.to_le_bytes()); 
+                    self.mem[uloc..uloc + 4].copy_from_slice(&var.to_le_bytes()); 
                 },
                 Code::MemorySize => 
                 {
