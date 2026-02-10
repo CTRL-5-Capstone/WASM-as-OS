@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WASM-as-OS Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { background: rgba(255,255,255,0.95); color: #333; padding: 2rem; margin-bottom: 2rem; border-radius: 12px; text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
+        .card { background: rgba(255,255,255,0.95); padding: 1.5rem; margin-bottom: 1rem; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); backdrop-filter: blur(10px); }
+        .btn { background: #2563eb; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; }
+        .btn:hover { background: #1d4ed8; transform: translateY(-2px); }
+        .btn.success { background: #10b981; }
+        .btn.danger { background: #ef4444; }
+        .status { padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.875rem; font-weight: 600; }
+        .status.running { background: #dcfce7; color: #166534; }
+        .status.demo { background: #fef3c7; color: #92400e; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+        .metric { text-align: center; padding: 1rem; background: rgba(59, 130, 246, 0.1); border-radius: 8px; }
+        .metric-value { font-size: 2.5rem; font-weight: bold; color: #2563eb; }
+        .metric-label { color: #6b7280; font-size: 0.875rem; margin-top: 0.5rem; }
+        .upload-area { border: 2px dashed #d1d5db; padding: 3rem; text-align: center; border-radius: 12px; cursor: pointer; transition: all 0.3s; }
+        .upload-area:hover { border-color: #2563eb; background: rgba(37, 99, 235, 0.05); }
+        .log { background: #1f2937; color: #f9fafb; padding: 1rem; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 0.875rem; max-height: 300px; overflow-y: auto; }
+        .demo-badge { background: #fbbf24; color: #92400e; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
+        .feature-list { list-style: none; }
+        .feature-list li { padding: 0.5rem 0; display: flex; align-items: center; }
+        .feature-list li:before { content: "✅"; margin-right: 0.5rem; }
+        .alert { background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 WASM-as-OS <span class="demo-badge">DEMO MODE</span></h1>
+            <p>WebAssembly Execution Platform - Interactive Demo</p>
+        </div>
+
+        <div class="alert">
+            <strong>Demo Mode:</strong> This is a standalone demo running without Docker. Full functionality requires Docker installation.
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h3>🔧 System Status</h3>
+                <div style="margin: 1rem 0;">
+                    <div style="margin: 0.5rem 0;">Demo Server: <span class="status demo">Demo Mode</span></div>
+                    <div style="margin: 0.5rem 0;">Frontend: <span class="status running">Active</span></div>
+                    <div style="margin: 0.5rem 0;">Mock API: <span class="status running">Simulated</span></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📊 Demo Stats</h3>
+                <div class="grid" style="grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-top: 1rem;">
+                    <div class="metric">
+                        <div class="metric-value" id="moduleCount">3</div>
+                        <div class="metric-label">Sample Modules</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="taskCount">7</div>
+                        <div class="metric-label">Demo Tasks</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📁 Upload WASM Module (Demo)</h3>
+            <div class="upload-area" onclick="simulateUpload()">
+                <p style="font-size: 3rem; margin-bottom: 1rem;">📁</p>
+                <p><strong>Click to simulate WASM upload</strong></p>
+                <p style="color: #6b7280; font-size: 0.875rem; margin-top: 0.5rem;">In full version: Drag & drop .wasm files (max 10MB)</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🧪 Demo Features</h3>
+            <div class="grid">
+                <div>
+                    <h4>Available in Demo:</h4>
+                    <ul class="feature-list">
+                        <li>Interactive UI</li>
+                        <li>Mock API responses</li>
+                        <li>Simulated uploads</li>
+                        <li>Sample modules</li>
+                        <li>Demo execution</li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Full Version Features:</h4>
+                    <ul class="feature-list">
+                        <li>Real WASM execution</li>
+                        <li>Task scheduling</li>
+                        <li>Performance metrics</li>
+                        <li>Security sandbox</li>
+                        <li>Database storage</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🎮 Demo Actions</h3>
+            <div style="margin: 1rem 0; display: flex; gap: 1rem; flex-wrap: wrap;">
+                <button class="btn" onclick="simulateExecution()">Execute Sample Module</button>
+                <button class="btn" onclick="showMetrics()">View Metrics</button>
+                <button class="btn" onclick="simulateScheduler()">Test Scheduler</button>
+                <button class="btn success" onclick="showFullSetup()">Setup Full Version</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📋 Demo Logs</h3>
+            <div id="logs" class="log">
+                <div>[INFO] WASM-as-OS Demo initialized</div>
+                <div>[INFO] Mock services started</div>
+                <div>[INFO] Demo mode active - simulated environment</div>
+                <div>[INFO] Ready for demonstration</div>
+            </div>
+        </div>
+
+        <div class="card" id="setupCard" style="display: none;">
+            <h3>🛠️ Full Installation Setup</h3>
+            <p><strong>To run the complete WASM-as-OS system:</strong></p>
+            <ol style="margin: 1rem 0; padding-left: 2rem;">
+                <li>Install Docker Desktop for Windows</li>
+                <li>Open PowerShell as Administrator</li>
+                <li>Navigate to the WASM-as-OS directory</li>
+                <li>Run: <code style="background: #f3f4f6; padding: 0.25rem;">docker-compose up -d</code></li>
+                <li>Access at: <code style="background: #f3f4f6; padding: 0.25rem;">http://localhost:3000</code></li>
+            </ol>
+            <div style="background: #f8fafc; padding: 1rem; border-radius: 6px; margin: 1rem 0;">
+                <strong>Default Credentials:</strong><br>
+                Username: admin<br>
+                Password: admin123
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let moduleCount = 3;
+        let taskCount = 7;
+        let executionCount = 0;
+
+        function addLog(message, type = 'INFO') {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            const color = type === 'ERROR' ? '#ef4444' : type === 'SUCCESS' ? '#10b981' : '#f9fafb';
+            logs.innerHTML += `<div style="color: ${color}">[${timestamp}] [${type}] ${message}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function simulateUpload() {
+            addLog('Simulating WASM module upload...');
+            setTimeout(() => {
+                moduleCount++;
+                document.getElementById('moduleCount').textContent = moduleCount;
+                addLog('Module "demo-calculator.wasm" uploaded successfully', 'SUCCESS');
+                addLog(`Module ID: demo-${Date.now()}`);
+            }, 1000);
+        }
+
+        function simulateExecution() {
+            addLog('Executing sample module: calculator.add(5, 3)');
+            setTimeout(() => {
+                executionCount++;
+                taskCount++;
+                document.getElementById('taskCount').textContent = taskCount;
+                addLog('Execution completed: Result = 8', 'SUCCESS');
+                addLog(`Execution time: ${Math.random() * 10 + 1}ms`);
+                addLog(`Memory used: ${Math.floor(Math.random() * 1000 + 500)}KB`);
+            }, 800);
+        }
+
+        function showMetrics() {
+            addLog('Displaying performance metrics...');
+            setTimeout(() => {
+                addLog(`Total executions: ${executionCount}`);
+                addLog(`Average execution time: ${(Math.random() * 5 + 2).toFixed(2)}ms`);
+                addLog(`Memory usage: ${(Math.random() * 50 + 25).toFixed(1)}MB`);
+                addLog(`CPU usage: ${(Math.random() * 30 + 10).toFixed(1)}%`);
+            }, 500);
+        }
+
+        function simulateScheduler() {
+            addLog('Testing task scheduler...');
+            setTimeout(() => {
+                addLog('Round-robin scheduler: 3 tasks queued');
+                addLog('Priority scheduler: 2 high-priority tasks');
+                addLog('Cooperative scheduler: 1 long-running task');
+                addLog('All schedulers operational', 'SUCCESS');
+            }, 1200);
+        }
+
+        function showFullSetup() {
+            document.getElementById('setupCard').style.display = 'block';
+            document.getElementById('setupCard').scrollIntoView({ behavior: 'smooth' });
+            addLog('Full installation guide displayed');
+        }
+
+        // Simulate periodic activity
+        setInterval(() => {
+            if (Math.random() > 0.7) {
+                const activities = [
+                    'Background task completed',
+                    'Metrics collected',
+                    'Health check passed',
+                    'Cache updated',
+                    'Session refreshed'
+                ];
+                addLog(activities[Math.floor(Math.random() * activities.length)]);
+            }
+        }, 5000);
+
+        // Initialize
+        addLog('Demo environment ready for interaction');
+    </script>
+</body>
+</html>

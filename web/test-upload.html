@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test WASM Upload</title>
+</head>
+<body>
+    <h1>Test WASM Upload</h1>
+    <input type="file" id="file" accept=".wasm">
+    <button onclick="testUpload()">Upload</button>
+    <pre id="result"></pre>
+
+    <script>
+        async function testUpload() {
+            const file = document.getElementById('file').files[0];
+            if (!file) {
+                alert('Select a file first');
+                return;
+            }
+
+            const arrayBuffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            
+            document.getElementById('result').textContent = 
+                'File: ' + file.name + '\n' +
+                'Size: ' + bytes.length + ' bytes\n' +
+                'Magic: ' + Array.from(bytes.slice(0, 4)).map(b => '0x' + b.toString(16)).join(' ') + '\n' +
+                'First 16 bytes: ' + Array.from(bytes.slice(0, 16)).join(', ');
+
+            // Send to API
+            try {
+                const response = await fetch('http://localhost:8080/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: 'test-' + Date.now(),
+                        wasm_data: Array.from(bytes)
+                    })
+                });
+                
+                const result = await response.json();
+                document.getElementById('result').textContent += '\n\nAPI Response:\n' + JSON.stringify(result, null, 2);
+            } catch (error) {
+                document.getElementById('result').textContent += '\n\nError: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

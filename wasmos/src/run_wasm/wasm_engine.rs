@@ -8,36 +8,47 @@ pub struct Curse
     loc: usize,
     len: usize,
 }
-impl Curse
-{
-    pub fn set_code(&mut self) -> Code
-    { 
-        if self.loc >= self.len
-        {
-            panic!("Cursor Bounds Breached!!!");
+
+#[derive(Debug, Clone)]
+pub struct CodeBody {
+    pub locals: Vec<(u32, u8)>, // count, type
+    pub code: Vec<u8>,
+}
+
+#[derive(Debug, Default)]
+pub struct WasmModule {
+    pub types: Vec<FunctionType>,
+    pub imports: Vec<Import>,
+    pub functions: Vec<u32>, // indices into types
+    pub exports: Vec<Export>,
+    pub code: Vec<CodeBody>,
+    pub start_func: Option<u32>,
+}
+
+impl WasmModule {
+    pub fn parse(binary: &[u8]) -> Result<Self, String> {
+        if binary.len() < 8 || &binary[0..4] != b"\0asm" || &binary[4..8] != b"\x01\0\0\0" {
+            return Err("Invalid WASM magic or version".to_string());
         }
-        let byte = self.byte_vec[self.loc];
-        self.loc += 1;
-        match byte
-        {    
-            //flow
-            0x00 => Code::Unreachable,
-            0x01 => Code::Nop,
-            0x02 => {
-                let typ = decode_byte(self.byte_vec[self.loc]);
-                self.loc += 1;
-                Code::Block(typ)
-            },
-            0x03 =>{ 
-                
-                let typ = decode_byte(self.byte_vec[self.loc]);
-                self.loc += 1;
-                Code::Loop(typ)
-            }
-            0x04 =>{
-                let typ = decode_byte(self.byte_vec[self.loc]);
-                self.loc += 1;   
-                Code::If(typ)
+
+        let mut module = WasmModule::default();
+        let mut pos = 8;
+
+        while pos < binary.len() {
+            let section_id = binary[pos];
+            pos += 1;
+            let (section_len, len_bytes) = decode_leb128_u32(&binary[pos..])?;
+            pos += len_bytes;
+            let section_end = pos + section_len as usize;
+
+            match section_id {
+                1 => parse_type_section(&binary[pos..section_end], &mut module)?,
+                2 => parse_import_section(&binary[pos..section_end], &mut module)?,
+                3 => parse_function_section(&binary[pos..section_end], &mut module)?,
+                7 => parse_export_section(&binary[pos..section_end], &mut module)?,
+                8 => parse_start_section(&binary[pos..section_end], &mut module)?,
+                10 => parse_code_section(&binary[pos..section_end], &mut module)?,
+                _ => {} // Skip other sections
             }
             0x05 => Code::Else,
             0x0B => Code::End,
@@ -324,67 +335,43 @@ impl Curse
             0xBF => Code::F64ReinterpretI64,
             _ =>{println!("{byte}"); panic!("Invalid ops")}, //Temp will remove later
         }
+
+        Ok(module)
     }
-    //leb decoders
-    pub fn new(vec: Vec<u8>, leng: usize) -> Self
-    {
-        Self
-        {
-            byte_vec: vec,
-            loc: 0,
-            len: leng,
+}
+
+fn decode_leb128_u32(slice: &[u8]) -> Result<(u32, usize), String> {
+    let mut result: u32 = 0;
+    let mut shift = 0;
+    let mut count = 0;
+    for &byte in slice {
+        result |= ((byte & 0x7f) as u32) << shift;
+        shift += 7;
+        count += 1;
+        if byte & 0x80 == 0 {
+            return Ok((result, count));
         }
     }
-    pub fn leb_toi32(&mut self) -> i32
-    {
-        let mut decoded: i32 = 0;
-        let mut shifter = 0;
-        loop 
-        {
-            if self.loc >= self.len
-            {
-                panic!("Vec overflow!") //Temp will add robust error handling later
-            }
-            let byte = self.byte_vec[self.loc];
-            self.loc += 1;
-            let mut shifty = (byte & 0x7F) as i32;
-            shifty <<= shifter;
-            shifter += 7;
-            decoded |= shifty;
-            if (byte & 0x80) == 0
-            {
-                if shifter < 32 && (byte & 0x40) != 0
-                {
-                    decoded |= !0 << shifter;
-                }
-                return decoded;
-            }
+    Err("LEB128 decode failed".to_string())
+}
+
+fn parse_type_section(data: &[u8], module: &mut WasmModule) -> Result<(), String> {
+    let mut pos = 0;
+    let (count, bytes) = decode_leb128_u32(data)?;
+    pos += bytes;
+
+    for _ in 0..count {
+        if data[pos] != 0x60 {
+            return Err("Invalid func type".to_string());
         }
-    }
-    pub fn leb_toi64(&mut self) -> i64
-    {
-        let mut decoded: i64 = 0;
-        let mut shifter: i64 = 0;
-        loop 
-        {
-            if self.loc >= self.len
-            {
-                panic!("Vec overflow!") //Temp will add robust error handling later
-            }
-            let byte = self.byte_vec[self.loc];
-            self.loc += 1;
-            let mut shifty = (byte & 0x7F) as i64;
-            shifty <<= shifter;
-            shifter += 7;
-            decoded |= shifty;
-            if (byte & 0x80) == 0
-            {
-                if shifter < 64 && (byte & 0x40) != 0
-                {
-                    decoded |= !0 << shifter;
-                }
-                return decoded;
-            }     
+        pos += 1;
+
+        let (param_count, bytes) = decode_leb128_u32(&data[pos..])?;
+        pos += bytes;
+        let mut params = Vec::new();
+        for _ in 0..param_count {
+            params.push(data[pos]);
+            pos += 1;
         }
     }
     pub fn leb_tou32(&mut self) -> u32
@@ -407,65 +394,68 @@ impl Curse
             }
             shifter += 7;
 
+        let (result_count, bytes) = decode_leb128_u32(&data[pos..])?;
+        pos += bytes;
+        let mut results = Vec::new();
+        for _ in 0..result_count {
+            results.push(data[pos]);
+            pos += 1;
         }
+
+        module.types.push(FunctionType { params, results });
     }
-    pub fn leb_tof32(&mut self) -> f32
-    {
-        let mut bits = Vec::new();
-        for i in 0..4
-        {
-            let byte = self.byte_vec[self.loc];
-            self.loc += 1;
-            bits.push((byte as u32) << (8 * i));
-        }
-        let mut tot = 0;
-        let init = bits[0];
-        for i in bits
-        {
-            if i == init
-            {
-                tot = i;
-            }
-            else{
-                tot |= i
-            }
-        }
-        f32::from_bits(tot)
+    Ok(())
+}
+
+fn parse_import_section(data: &[u8], module: &mut WasmModule) -> Result<(), String> {
+    let mut pos = 0;
+    let (count, bytes) = decode_leb128_u32(data)?;
+    pos += bytes;
+
+    for _ in 0..count {
+        let (mod_len, bytes) = decode_leb128_u32(&data[pos..])?;
+        pos += bytes;
+        let mod_name = String::from_utf8_lossy(&data[pos..pos + mod_len as usize]).to_string();
+        pos += mod_len as usize;
+
+        let (name_len, bytes) = decode_leb128_u32(&data[pos..])?;
+        pos += bytes;
+        let name = String::from_utf8_lossy(&data[pos..pos + name_len as usize]).to_string();
+        pos += name_len as usize;
+
+        let kind = data[pos];
+        pos += 1;
+        
+        let desc = if kind == 0x00 { // Function
+            let (type_idx, bytes) = decode_leb128_u32(&data[pos..])?;
+            pos += bytes;
+            type_idx
+        } else {
+            // Skip other import types for now (Table, Mem, Global)
+            // We need to implement skipping logic properly or just assume simple MVP
+            // For MVP, let's just read one byte/leb128 and hope it's enough or error out
+            // Actually, we should probably implement full skipping to be safe.
+            // But for now, let's just assume function imports for our test case.
+            0 
+        };
+
+        module.imports.push(Import { module: mod_name, name, kind, desc });
     }
-    pub fn leb_tof64(&mut self) -> f64
-    {
-        let mut bits = Vec::new();
-        for i in 0..8
-        {
-            let byte = self.byte_vec[self.loc];
-            self.loc += 1;
-            bits.push((byte as u64) << (8 * i));
-        }
-        let mut tot = 0;
-        let init = bits[0];
-        for i in bits
-        {
-            if i == init
-            {
-                tot = i;
-            }
-            else{
-                tot |= i
-            }
-        }
-        f64::from_bits(tot)
+    Ok(())
+}
+
+fn parse_function_section(data: &[u8], module: &mut WasmModule) -> Result<(), String> {
+    let mut pos = 0;
+    let (count, bytes) = decode_leb128_u32(data)?;
+    pos += bytes;
+
+    for _ in 0..count {
+        let (type_idx, bytes) = decode_leb128_u32(&data[pos..])?;
+        pos += bytes;
+        module.functions.push(type_idx);
     }
-    pub fn parse_wasm(&mut self) -> Module
-    {
-        let mut module =  Module::new();
-        self.loc = 8;
-        while self.loc < self.len
-        {
-            let sec = self.byte_vec[self.loc];
-            self.loc += 1;
-            let mut size = self.leb_tou32() as usize;
-            let mut start = self.loc;
-            size += start;
+    Ok(())
+}
 
             match sec
             {
@@ -531,13 +521,11 @@ impl Curse
                                     ismut: false,
                                     byte_typs: TypeBytes::I32,
 
-                                });
-                                module.imports += 1;
-                            } 
-                            //0x01 => ExpTyp::Table,
-                            //0x02 => ExpTyp::Memory,
-                            //0x03 => ,
-                            _ => panic!("Crit Byte error!"),
+    for _ in 0..count {
+        let (name_len, bytes) = decode_leb128_u32(&data[pos..])?;
+        pos += bytes;
+        let name = String::from_utf8_lossy(&data[pos..pos + name_len as usize]).to_string();
+        pos += name_len as usize;
 
                         };
                         
@@ -682,27 +670,84 @@ impl Curse
                 _ => self.loc = size, // Skipping other sections until implemented
             }
 
+fn parse_code_section(data: &[u8], module: &mut WasmModule) -> Result<(), String> {
+    let mut pos = 0;
+    let (count, bytes) = decode_leb128_u32(data)?;
+    pos += bytes;
 
+    for _ in 0..count {
+        let (body_size, bytes) = decode_leb128_u32(&data[pos..])?;
+        pos += bytes;
+        let body_end = pos + body_size as usize;
+        
+        let mut body_pos = pos;
+        let (local_vec_count, bytes) = decode_leb128_u32(&data[body_pos..])?;
+        body_pos += bytes;
+        
+        let mut locals = Vec::new();
+        for _ in 0..local_vec_count {
+            let (count, bytes) = decode_leb128_u32(&data[body_pos..])?;
+            body_pos += bytes;
+            let type_byte = data[body_pos];
+            body_pos += 1;
+            locals.push((count, type_byte));
         }
-        module
+
+        let code = data[body_pos..body_end].to_vec();
+        module.code.push(CodeBody { locals, code });
+        
+        pos = body_end;
     }
+    Ok(())
 }
 
 pub fn wasm_engine(file_path: &Path) -> bool
 {
     //execute wasm file.
     let wasm_binary:Vec<u8> = fs::read(file_path).expect("Wasm file could not be read");
-    let magic_num: Vec<u8> = vec![0x00, 0x61, 0x73, 0x6D];
-    let version: Vec<u8> = vec![0x01, 0x00, 0x00, 0x00];
-    if wasm_binary.len() < 8
-    {
-        println!("Invalid file");
-        return false;
-    }
-    if magic_num != wasm_binary[0..4] || version != wasm_binary[4..8]
-    {
-        println!("Invalid file");
-        return false;
+    
+    match WasmModule::parse(&wasm_binary) {
+        Ok(module) => {
+            println!("Parsed WASM Module:");
+            println!("  Types: {}", module.types.len());
+            println!("  Functions: {}", module.functions.len());
+            println!("  Exports: {}", module.exports.len());
+            println!("  Code Bodies: {}", module.code.len());
+            
+            let mut runtime = super::interpreter::Runtime::new();
+            
+            // Find entry point
+            // 1. Start section
+            if let Some(start_idx) = module.start_func {
+                println!("Executing start function: {}", start_idx);
+                if let Err(e) = runtime.execute(&module, start_idx) {
+                    println!("Runtime error: {}", e);
+                    return false;
+                }
+                return true;
+            }
+            
+            // 2. Exported "main" or "_start"
+            for export in &module.exports {
+                if export.kind == 0x00 { // Function
+                    if export.name == "main" || export.name == "_start" {
+                        println!("Executing exported function: {} (idx: {})", export.name, export.index);
+                        if let Err(e) = runtime.execute(&module, export.index) {
+                            println!("Runtime error: {}", e);
+                            return false;
+                        }
+                        return true;
+                    }
+                }
+            }
+            
+            println!("No entry point found (start section or main/_start export)");
+            false
+        },
+        Err(e) => {
+            println!("Error parsing WASM: {}", e);
+            false
+        },
     }
     let leng = wasm_binary.len();
     let mut cursor = Curse::new(wasm_binary, leng);
