@@ -469,7 +469,7 @@ impl Curse
 
             match sec
             {
-                1 => {
+                1 => {       //Types
                     let count = self.leb_tou32() as usize;
                     let mut itt = 0;
                     while itt < count
@@ -503,7 +503,7 @@ impl Curse
                         itt += 1;
                     }
                 }
-               /*  2 => {
+                2 => {      //Imports
                     let mut count = self.leb_tou32();
                     while count > 0
                     {
@@ -543,8 +543,8 @@ impl Curse
                         
                         count -= 1;
                     }
-                }*/
-                3 => {
+                }
+                3 => {      //Functions
                     let mut count = self.leb_tou32();
                     while count > 0
                     {
@@ -553,7 +553,23 @@ impl Curse
                         count -= 1;
                     } 
                 }
-                5 =>{
+                4 => {      //Table
+                    let mut count = self.leb_tou32();
+                    while count > 0
+                    {
+                        let typ = decode_byte(self.byte_vec[self.loc]).unwrap();
+                        let flags = self.byte_vec[self.loc];
+                        let tabmin = self.leb_tou32();
+                        let mut tabmax = None;
+                        if flags == 0x01 
+                        {
+                            tabmax = Some(self.leb_tou32());
+                        }
+                        module.tabs.push(Tab{typ, tabmin, tabmax});
+                        count -= 1;
+                    }
+                }
+                5 =>{       //Memmory
                     let mut count = self.leb_tou32();
                     while count > 0
                     {
@@ -569,7 +585,7 @@ impl Curse
                         count -= 1
                     }
                 }
-                6 => {
+                6 => {      //Globals
                     let mut count = self.leb_tou32();
                     while count > 0
                     {
@@ -589,7 +605,7 @@ impl Curse
                         module.glob.push(Global { typ, ismut, code,})
                     }
                 }
-                7 => {
+                7 => {      //Exports
                     let mut count = self.leb_toi32() as usize;
                     while count > 0
                     {
@@ -612,7 +628,10 @@ impl Curse
                         count -= 1;
                     }
                 }
-                8 => {module.strt = Some(self.leb_tou32());}
+                8 => {module.strt = Some(self.leb_tou32());}    //Start point for module (optional)
+                /*9 => {      //Elements
+
+                }*/
                 10 => {
                     let count = self.leb_tou32() as usize;
                     let funtot = module.imports as usize + count;
@@ -647,6 +666,19 @@ impl Curse
                         itt += 1;
                     }
                 }
+                /*11 => {     //MemInit
+                    let mut count = self.leb_tou32();
+                    while count > 0
+                    {
+                        let veclen = self.leb_tou32();
+                        let flags = decode_byte(self.byte_vec[self.loc]);
+                        count -= 1;
+                    }
+                }*/
+                /*12 => {     //MemInit Count
+                    
+                }*/
+
                 _ => self.loc = size, // Skipping other sections until implemented
             }
 
