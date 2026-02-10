@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inspect - WASM-OS</title>
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 24 24' stroke='%23ffffff' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z'/%3E%3C/svg%3E">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="icon icon-brand icon-cpu"></span>
+            WASM-OS
+        </div>
+        <ul class="nav-menu">
+            <li><a href="../index.html">
+                <span class="icon icon-dashboard"></span>Dashboard
+            </a></li>
+            <li><a href="tasks.html">
+                <span class="icon icon-tasks"></span>Tasks
+            </a></li>
+            <li><a href="execute.html">
+                <span class="icon icon-execute"></span>Execute
+            </a></li>
+            <li><a href="inspect.html" class="active">
+                <span class="icon icon-inspect"></span>Inspect
+            </a></li>
+            <li><a href="monitor.html">
+                <span class="icon icon-monitor"></span>Monitor
+            </a></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <h1>Inspect WASM Modules</h1>
+        
+        <div class="section">
+            <h2>
+                <span class="icon icon-tasks"></span>
+                Select Task to Inspect
+            </h2>
+            <select id="taskSelect" class="form-select">
+                <option value="">Loading tasks...</option>
+            </select>
+        </div>
+
+        <div class="section">
+            <h2>
+                <span class="icon icon-wasm"></span>
+                Task Details
+            </h2>
+            <div id="taskDetails" class="info-box">
+                <div class="no-data">Select a task to view details</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>
+                <span class="icon icon-settings"></span>
+                Debug Information
+            </h2>
+            <div id="debugInfo" class="info-box">
+                <div class="no-data">Select a task to view debug information</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>
+                <span class="icon icon-security"></span>
+                Security Analysis
+            </h2>
+            <div id="securityAnalysis" class="info-box">
+                <div class="no-data">Select a task to view security analysis</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/api.js"></script>
+    <script src="../js/inspect.js"></script>
+</body>
+</html>
