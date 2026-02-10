@@ -1,6 +1,6 @@
 use dialoguer::{Select, theme::ColorfulTheme};
 use super::wasm_struct::WasmFile;
-use std::{fs, sync::{Arc, Mutex}};
+use std::{cell::RefCell, fs, rc::Rc};
 
 pub fn delete_from_file(count: u16)
 {
@@ -34,24 +34,24 @@ fn add_to_file(count: u16, to_insert: String)
         let mut file_lines: Vec<String> = from_file.split('\n').map(|a_line| a_line.to_string()).collect(); //Divide file into vec by \n
         file_lines.insert(count as usize , new_line); //Insert the new line
         from_file = file_lines.join("\n").trim().to_string(); //Concatonate lines in vec
+
     }
     fs::write("wasm_files/wasm_list.csv", from_file).expect("ERROR: Path to wasm_list.csv not found");
 }
-#[derive(Clone)]
 pub struct WasmList
 { //Stores a Structure WasmFile which holds information about .wasm files.
-    head: Option<Arc<Mutex<WasmNode>>>,
-    tail: Option<Arc<Mutex<WasmNode>>>
+    head: Option<Rc<RefCell<WasmNode>>>,
+    tail: Option<Rc<RefCell<WasmNode>>>
 }
 #[derive(Clone)]
 pub struct WasmNode
 { //Node for WasmList
     pub wasm_file: WasmFile, //.wasm file structure
-    next: Option<Arc<Mutex<WasmNode>>>
+    next: Option<Rc<RefCell<WasmNode>>>
 }
 impl WasmNode
 {
-    pub fn new_node(wasm_file: WasmFile, next: Option<Arc<Mutex<WasmNode>>>) -> WasmNode
+    pub fn new_node(wasm_file: WasmFile, next: Option<Rc<RefCell<WasmNode>>>) -> WasmNode
     { //New Node "Constructor"
         WasmNode
         {
@@ -68,13 +68,13 @@ impl WasmList
         {
             None =>
             {
-                self.head = Some(Arc::new(Mutex::new(WasmNode::new_node(node, None))));
+                self.head = Some(Rc::new(RefCell::new(WasmNode::new_node(node, None))));
                 self.tail = self.head.clone();
             }
             Some(old_node) =>
             {
-                let new_node = Some(Arc::new(Mutex::new(WasmNode::new_node(node, None))));
-                old_node.lock().unwrap().next = new_node.clone();
+                let new_node = Some(Rc::new(RefCell::new(WasmNode::new_node(node, None))));
+                old_node.borrow_mut().next = new_node.clone();
                 self.tail = new_node.clone();
             }
         }
@@ -103,10 +103,10 @@ impl WasmList
 
             Some(head_node) =>
             {  
-                let head_name = head_node.lock().unwrap().wasm_file.name.clone();
+                let head_name = head_node.borrow().wasm_file.name.clone();
                 if head_name > node.name
                 {
-                    let new_node = Arc::new(Mutex::new(WasmNode::new_node(node, Some(head_node.clone()))));
+                    let new_node = Rc::new(RefCell::new(WasmNode::new_node(node, Some(head_node.clone()))));
                     self.head = Some(new_node);
                     add_to_file(count, to_insert);
                 }
@@ -121,7 +121,7 @@ impl WasmList
                     match choice {
                         0 => 
                         {
-                            head_node.lock().unwrap().wasm_file = node;
+                            head_node.borrow_mut().wasm_file = node;
                             delete_from_file(count);
                             add_to_file(count, to_insert);
                         },
@@ -132,7 +132,7 @@ impl WasmList
                 else
                 {
                     let mut current = head_node.clone();
-                    let mut next = current.lock().unwrap().next.clone();
+                    let mut next = current.borrow().next.clone();
                     loop
                     {
                         count += 1;
@@ -146,7 +146,7 @@ impl WasmList
                             }
                             Some(list_node) =>
                             {
-                                let curr_name = list_node.lock().unwrap().wasm_file.name.clone();
+                                let curr_name = list_node.borrow().wasm_file.name.clone();
                                 if curr_name == node.name
                                 {
                                     let choice = Select::with_theme(&ColorfulTheme::default())
@@ -159,7 +159,7 @@ impl WasmList
                                     {
                                         0 => 
                                         {
-                                            list_node.lock().unwrap().wasm_file = node;
+                                            list_node.borrow_mut().wasm_file = node;
                                             delete_from_file(count);
                                             add_to_file(count, to_insert);
                                             break;
@@ -170,14 +170,14 @@ impl WasmList
                                 } 
                                 else if curr_name > node.name
                                 {
-                                    current.lock().unwrap().next = Some(Arc::new(Mutex::new(WasmNode::new_node(node, Some(list_node.clone())))));
+                                    current.borrow_mut().next = Some(Rc::new(RefCell::new(WasmNode::new_node(node, Some(list_node.clone())))));
                                     add_to_file(count, to_insert);
                                     break;
                                 }
                                 else
                                 {
                                     current = list_node;
-                                    next = current.lock().unwrap().next.clone();
+                                    next = current.borrow().next.clone();
                                 }
                             }
 
@@ -212,10 +212,10 @@ impl WasmList
             }
             Some(head_node) =>
             {
-                let head_name = head_node.lock().unwrap().wasm_file.name.clone();
+                let head_name = head_node.borrow().wasm_file.name.clone();
                 if head_name == name //Case for deleting the head node
                 {
-                    self.head = head_node.lock().unwrap().next.clone();
+                    self.head = head_node.borrow().next.clone();
                     if self.head.is_none()
                     {
                         self.tail = None;
@@ -227,7 +227,7 @@ impl WasmList
                     loop 
                     {
                         count += 1;
-                        let next = current.lock().unwrap().next.clone();
+                        let next = current.borrow().next.clone();
                         match next
                         {
                             None =>
@@ -237,10 +237,10 @@ impl WasmList
                             }
                             Some(node) =>
                             {
-                                if node.lock().unwrap().wasm_file.name == name //Case for node to delete found
+                                if node.borrow().wasm_file.name == name //Case for node to delete found
                                 {
-                                    current.lock().unwrap().next = node.lock().unwrap().next.clone();
-                                    if current.lock().unwrap().next.is_none()
+                                    current.borrow_mut().next = node.borrow().next.clone();
+                                    if current.borrow().next.is_none()
                                     {
                                         self.tail = Some(current);
                                     }
@@ -271,8 +271,8 @@ impl WasmList
                 }
                 Some(node) =>
                 {
-                    println!("{}", node.lock().unwrap().wasm_file.name.clone());
-                    current = node.lock().unwrap().next.clone();
+                    println!("{}", node.borrow().wasm_file.name.clone());
+                    current = node.borrow().next.clone();
                 }
             } 
         }
@@ -288,17 +288,17 @@ impl WasmList
                 None => {break;}
                 Some(node) =>
                 {
-                    name_vec.push(node.lock().unwrap().wasm_file.name.clone());
-                    current = node.lock().unwrap().next.clone();
+                    name_vec.push(node.borrow().wasm_file.name.clone());
+                    current = node.borrow().next.clone();
                 }
             }
         }
         name_vec
     }
-    pub fn list_runningvec(&mut self) -> (Vec<Arc<Mutex<WasmNode>>>, Vec<String>) 
+    pub fn list_runningvec(&mut self) -> (Vec<Rc<RefCell<WasmNode>>>, Vec<String>) 
     {            
         let mut running_vec: Vec<String> = Vec::new();
-        let mut wasm_vec: Vec<Arc<Mutex<WasmNode>>> = Vec::new();
+        let mut wasm_vec: Vec<Rc<RefCell<WasmNode>>> = Vec::new();
         let mut current = self.head.clone();
         loop
         {
@@ -307,22 +307,22 @@ impl WasmList
                 None => {break;}
                 Some(node) =>
                 {
-                    if node.lock().unwrap().wasm_file.running
+                    if node.borrow().wasm_file.running
                     {
-                        running_vec.push(node.lock().unwrap().wasm_file.name.clone());
+                        running_vec.push(node.borrow().wasm_file.name.clone());
                         wasm_vec.push(node.clone());
 
                     }
-                    current = node.lock().unwrap().next.clone();
+                    current = node.borrow().next.clone();
                 }
             }
         }
         (wasm_vec, running_vec)
     }
-    pub fn list_haltedvec(&mut self) -> (Vec<Arc<Mutex<WasmNode>>>, Vec<String>) 
+    pub fn list_haltedvec(&mut self) -> (Vec<Rc<RefCell<WasmNode>>>, Vec<String>) 
     {            
         let mut nonrunning_vec: Vec<String> = Vec::new();
-        let mut wasm_vec: Vec<Arc<Mutex<WasmNode>>> = Vec::new();
+        let mut wasm_vec: Vec<Rc<RefCell<WasmNode>>> = Vec::new();
         let mut current = self.head.clone();
         loop
         {
@@ -331,25 +331,25 @@ impl WasmList
                 None => {break;}
                 Some(node) =>
                 {
-                    if !node.lock().unwrap().wasm_file.running
+                    if !node.borrow().wasm_file.running
                     {
-                        nonrunning_vec.push(node.lock().unwrap().wasm_file.name.clone());
+                        nonrunning_vec.push(node.borrow().wasm_file.name.clone());
                         wasm_vec.push(node.clone());
 
                     }
-                    current = node.lock().unwrap().next.clone();
+                    current = node.borrow().next.clone();
                 }
             }
         }
         (wasm_vec, nonrunning_vec)
     }
-    pub fn running_false(&mut self, node: Arc<Mutex<WasmNode>>)
+    pub fn running_false(&mut self, node: Rc<RefCell<WasmNode>>)
     {
-        node.lock().unwrap().wasm_file.running = false;
+        node.borrow_mut().wasm_file.running = false;
     }
-    pub fn running_true(&mut self, node: Arc<Mutex<WasmNode>>)
+    pub fn running_true(&mut self, node: Rc<RefCell<WasmNode>>)
     {
-        node.lock().unwrap().wasm_file.running = true;
+        node.borrow_mut().wasm_file.running = true;
     }
     /* could be a useful function not needed yet
     pub fn get_file(&mut self, name: String)
