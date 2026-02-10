@@ -4,7 +4,7 @@ pub struct Module
     pub imps: Vec<Import>,
     pub typs: Vec<Types>,
     pub fnid: Vec<u32>,
-    pub tabs: Vec<(u32, Option<u32>)>,
+    pub tabs: Vec<Tab>,
     pub memy: Vec<(u32, Option<u32>)>,
     pub glob: Vec<Global>,
     pub exps: Vec<Export>,
@@ -12,7 +12,8 @@ pub struct Module
     pub elms: Vec<Element>,
     pub fcce: Vec<Function>,
     pub mmsg: Vec<MemSeg>,
-    pub imports: u32
+    pub imports: u32,
+    pub memcount: u32
 }
 impl Module
 {
@@ -32,6 +33,7 @@ impl Module
             fcce: Vec::new(),
             mmsg: Vec::new(),
             imports: 0,
+            memcount: 0,
 
         }
     }
@@ -106,8 +108,15 @@ pub struct Element
 
 }
 #[derive(Clone)]
+pub enum MemTyp
+{
+    Waiting,
+    Immediate,
+}
+#[derive(Clone)]
 pub struct MemSeg
 {
+    pub typ: MemTyp,
     pub memloc: u32,
     pub code: Vec<Code>,
     pub memcpy: Vec<u8>,
@@ -119,10 +128,22 @@ pub struct Function
     pub code: Vec<Code>
 }
 #[derive(Clone)]
+pub struct Tab
+{
+    pub typ: TypeBytes,
+    pub tabmin: u32,
+    pub tabmax: Option<u32>
+}
+#[derive(Clone)]
 pub enum Code
 {
     //The grandest of enumerations!
     //Codes for the interpreter when running the module
+
+    //I32
+    I32Eqz,
+    I32Eq,
+    I32Ne,
    //flow
     Unreachable,
     Nop,
@@ -186,11 +207,7 @@ pub enum Code
     I64Const(i64),
     F32Const(f32),
     F64Const(f64),
-    //Comps
-    //I32
-    I32Eqz,
-    I32Eq,
-    I32Ne,
+    //Comps    
     I32LtS,
     I32LtU,
     I32GtS,
