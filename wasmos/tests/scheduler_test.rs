@@ -17,3 +17,36 @@ fn test_round_robin_rotation() {
 
     assert_eq!(queue, vec![2, 3, 1]);
 }
+#[test]
+fn test_round_robin_single_task() {
+    let mut queue: Vec<u32> = vec![42];
+
+    let first = queue.remove(0);
+    queue.push(first);
+
+    // With only one item, the order shouldn't change
+    assert_eq!(queue, vec![42]);
+}
+
+#[test]
+fn test_round_robin_empty_queue() {
+    let mut queue: Vec<u32> = Vec::new();
+
+    // Nothing to rotate, just make sure it stays empty
+    assert!(queue.is_empty());
+}
+
+#[test]
+fn test_round_robin_two_rotations() {
+    let mut queue: Vec<u32> = vec![1, 2, 3, 4];
+
+    // first rotation
+    let first = queue.remove(0);
+    queue.push(first);
+
+    // second rotation
+    let first = queue.remove(0);
+    queue.push(first);
+
+    assert_eq!(queue, vec![3, 4, 1, 2]);
+
