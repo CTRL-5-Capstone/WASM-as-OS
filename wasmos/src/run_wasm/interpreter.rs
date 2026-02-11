@@ -1,5 +1,6 @@
-use super::wasm_engine::{WasmModule, CodeBody};
 use std::collections::HashMap;
+use crate::struct_files::wasm_struct::WasmFile;
+
 
 pub struct Runtime {
     pub stack: Vec<i32>, // Simplified to i32 for now
@@ -16,7 +17,7 @@ impl Runtime {
         }
     }
 
-    pub fn execute(&mut self, module: &WasmModule, func_idx: u32) -> Result<(), String> {
+    pub fn execute(&mut self, module: &WasmFile, func_idx: u32) -> Result<(), String> {
         let num_imports = module.imports.len() as u32;
 
         // Check if it's an import

@@ -10,7 +10,7 @@ pub fn load_file(wasm_list: &mut WasmList) //Loads wasm files from wasm_list.csv
 {
     let mut itter = 0;
     let mut name = String::new();
-    let from_file: String = fs::read_to_string("wasm_files/wasm_list.csv").expect("ERROR: Path to wasm_list.csv not found").trim().to_string();
+    let from_file: String = fs::read_to_string("src/wasm_files/wasm_list.csv").expect("ERROR: Path to wasm_list.csv not found").trim().to_string();
     if !from_file.is_empty()
     {
         let wasm_vec: Vec<String> = from_file.split([',', '\n']).map(|to_string| to_string.trim().trim_matches([',', '\n']).to_string()).collect();
