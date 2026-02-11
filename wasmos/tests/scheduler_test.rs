@@ -49,4 +49,4 @@ fn test_round_robin_two_rotations() {
     queue.push(first);
 
     assert_eq!(queue, vec![3, 4, 1, 2]);
-
+}

@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+/*use supper::wasm_engine::{WasmModule, CodeBody};
+>>>>>>> f9b8ff4d9b5a7677c99e8d80d5febdf9159718d6
 use std::collections::HashMap;
 use crate::struct_files::wasm_struct::WasmFile;
 
@@ -172,3 +176,4 @@ fn decode_leb128_i32(slice: &[u8]) -> Result<(i32, usize), String> {
     
     Ok((result, count))
 }
+*/
