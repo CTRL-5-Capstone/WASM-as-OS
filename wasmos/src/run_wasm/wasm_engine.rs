@@ -1,7 +1,6 @@
 use std::{fs, path::Path};
 use super::wasm_module::*;
 use super::build_runtime::*;
-
 pub struct Curse
 {
     byte_vec: Vec<u8>,
@@ -432,6 +431,91 @@ impl Curse
         }
         f32::from_bits(tot)
     }
+    pub fn get_code_exp(&mut self) -> Vec<Code> //Function originally part of section 11 repurposed for general use as helper function converts bytes to opcodes.
+    {     
+        let mut count = self.leb_tou32();  
+        let mut code: Vec<Code> = Vec::new();
+        while count > 0
+        { 
+            let mut mbyt = self.byte_vec[self.loc];
+            self.loc += 1;
+            match mbyt
+            {
+                0x23 => code.push(Code::GlobalGet(self.leb_tou32())),
+                0x41 => code.push(Code::I32Const(self.leb_toi32())),
+                0x42 => code.push(Code::I64Const(self.leb_toi64())),
+                0x43 => code.push(Code::F32Const(self.leb_tof32())),
+                0x44 => code.push(Code::F64Const(self.leb_tof64())),
+                //For the extended segss using glob Not sure if we're doing MVP or extended so commented out for now!
+                /* 
+                0x6a => {
+                    if code.is_empty(){panic!("Parser ecountered Arithmatic opcode first in Element Segment Invalid Module");}
+                    code.push(Code::I32Add);
+                }
+                0x6b => {
+                    if code.is_empty(){panic!("Parser ecountered Arithmatic opcode first in Element Segment Invalid Module");}
+                    code.push(Code::I32Add);
+                }
+                0x6c =>
+                {
+                    if code.is_empty(){panic!("Parser ecountered Arithmatic opcode first in Element Segment Invalid Module");}
+                    code.push(Code::I32Mul);
+                }
+                0x7c =>
+                {
+                    if code.is_empty(){panic!("Parser ecountered Arithmatic opcode first in Element Segment Invalid Module");}
+                    code.push(Code::I64Add);
+                }
+                0x7d => 
+                {
+                    if code.is_empty(){panic!("Parser ecountered Arithmatic opcode first in Element Segment Invalid Module");}
+                    code.push(Code::I64Sub);
+                }
+                0x7e =>
+                {
+                    if code.is_empty(){panic!("Parser ecountered Arithmatic opcode first in Element Segment Invalid Module");}
+                    code.push(Code::I64Mul);
+                }
+                */
+                //0xd0 => code.push(Code::RNull(self.leb_tou32())), Not Implemented added for later!
+                //0xd2 => code.push(Code::RFunc(self.leb_tou32())),       
+                _ => panic!("Invalid opcode Section 11 Byte: "),                             
+            }
+            let end = self.byte_vec[self.loc];
+            self.loc += 1;
+            assert!(end == 0x0B);
+            count -= 1;
+        }
+        code
+    }
+    fn get_fvec_data(&mut self) -> Vec<u32>
+    {
+        let mut fvec: Vec<u32> = Vec::new();
+        let mut count = self.leb_tou32();
+        while count > 0
+        {
+            fvec.push(self.leb_tou32());
+            count -= 1;
+        }
+        fvec
+    }
+    fn get_off(&mut self) -> Code
+    {
+        let mut mbyt = self.byte_vec[self.loc];
+        self.loc += 1;
+        let code = match mbyt
+        {
+            0x23 => Code::GlobalGet(self.leb_tou32()),
+            0x41 => Code::I32Const(self.leb_toi32()),
+            0x42 => Code::I64Const(self.leb_toi64()),
+            0x43 => Code::F32Const(self.leb_tof32()),
+            0x44 => Code::F64Const(self.leb_tof64()),
+            //0xd0 => code.push(Code::RNull(self.leb_tou32())), Not Implemented added for later!
+            //0xd2 => code.push(Code::RFunc(self.leb_tou32())),       
+            _ => panic!("Invalid opcode Section 11 Byte: "),                             
+        };
+        code
+    }
     pub fn leb_tof64(&mut self) -> f64
     {
         let mut bits = Vec::new();
@@ -629,9 +713,73 @@ impl Curse
                     }
                 }
                 8 => {module.strt = Some(self.leb_tou32());}    //Start point for module (optional)
-                /*9 => {      //Elements
-
-                }*/
+                9 => {      //Elements
+                    let mut count = self.leb_tou32();
+                    while count > 0
+                    {
+                        let mut elmtyp = None;
+                        let mut elmcode = Vec::new();
+                        let mut fvec = Vec::new();
+                        let flag = self.leb_tou32();
+                        match flag {
+                            0x00 => {
+                                elmcode.push(self.get_off());
+                                fvec = self.get_fvec_data();
+                            }
+                            0x01 => {
+                                elmtyp = match self.byte_vec[self.loc]{
+                                    0x00 => Some(0x00),
+                                    _ => panic!("Improper Element Type Byte must be 0x00"),
+                                };
+                                self.loc += 1;
+                                fvec = self.get_fvec_data();
+                            }
+                            0x02 => {
+                                fvec.push(self.leb_tou32());
+                                elmcode.push(self.get_off());
+                                elmtyp = match self.byte_vec[self.loc]{
+                                    0x00 => Some(0x00),
+                                    _ => panic!("Improper Element Type Byte must be 0x00"),
+                                };
+                                self.loc += 1;
+                                fvec.extend(self.get_fvec_data());
+                            }
+                            0x03 => {
+                                elmtyp = match self.byte_vec[self.loc]{
+                                    0x00 => Some(0x00),
+                                    _ => panic!("Improper Element Type Byte must be 0x00"),
+                                };
+                                self.loc += 1;
+                                fvec = self.get_fvec_data();
+                            }
+                            0x04 => {
+                                elmcode.push(self.get_off());
+                                fvec = self.get_fvec_data();
+                                elmtyp = None;
+                            }
+                            0x05 => {
+                                elmtyp = Some(self.byte_vec[self.loc]);
+                                self.loc += 1;
+                                elmcode = self.get_code_exp();
+                            }
+                            0x06 => {
+                                fvec.push(self.leb_tou32());
+                                elmcode.push(self.get_off());
+                                elmtyp = Some(self.byte_vec[self.loc]);
+                                self.loc += 1;
+                                elmcode.extend(self.get_code_exp());
+                            }
+                            0x07 => {
+                                elmtyp = Some(self.byte_vec[self.loc]);
+                                self.loc += 1;
+                                elmcode = self.get_code_exp();
+                            }
+                            _ => panic!("Invalid wasm file: Flag byte must be 0x00 - 0x07 Elements Byte Location: {}", self.loc),
+                        };
+                        module.elms.push(Element{flag, elmtyp, elmcode, fvec});
+                        count -= 1;
+                    }
+                }
                 10 => {
                     let count = self.leb_tou32() as usize;
                     let funtot = module.imports as usize + count;
@@ -666,18 +814,37 @@ impl Curse
                         itt += 1;
                     }
                 }
-                /*11 => {     //MemInit
+                11 => {     //MemInit
                     let mut count = self.leb_tou32();
+                    assert!(count == module.memcount);
                     while count > 0
                     {
                         let veclen = self.leb_tou32();
-                        let flags = decode_byte(self.byte_vec[self.loc]);
+                        let flags = self.byte_vec[self.loc];
+                        let memtyp: MemTyp;
+                        let mut code = None;
+                        if flags & 0x01 != 0 
+                        {
+                            memtyp = MemTyp::Immediate;
+                            code = Some(self.get_off());
+                        }
+                        else {memtyp = MemTyp::Waiting;}
+                        let mut datalen = self.leb_tou32() as usize;
+                        let mut dvec: Vec<u8> = Vec::new();
+                        while datalen > 0
+                        {
+                            dvec.push(self.byte_vec[self.loc]);
+                            self.loc += 1;
+                            datalen -= 1;
+                        }
+                        self.loc += datalen;
+                        module.mmsg.push(MemSeg{memtyp, code, dvec});
                         count -= 1;
                     }
-                }*/
-                /*12 => {     //MemInit Count
-                    
-                }*/
+                }
+                12 => {     //MemInit Count
+                    module.memcount = self.leb_tou32();
+                }
 
                 _ => self.loc = size, // Skipping other sections until implemented
             }

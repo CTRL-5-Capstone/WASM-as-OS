@@ -104,11 +104,13 @@ pub struct Global
 #[derive(Clone)]
 pub struct Element
 {
-//imp later
-
+    pub flag: u32,
+    pub elmtyp: Option<u8>, 
+    pub elmcode: Vec<Code>,
+    pub fvec: Vec<u32>,
 }
 #[derive(Clone)]
-pub enum MemTyp
+pub enum MemTyp //Could probably just store the flag instead looking back while working on element section
 {
     Waiting,
     Immediate,
@@ -116,10 +118,9 @@ pub enum MemTyp
 #[derive(Clone)]
 pub struct MemSeg
 {
-    pub typ: MemTyp,
-    pub memloc: u32,
-    pub code: Vec<Code>,
-    pub memcpy: Vec<u8>,
+    pub memtyp: MemTyp,
+    pub code: Option<Code>,
+    pub dvec: Vec<u8>,
 }
 #[derive(Clone)]
 pub struct Function
