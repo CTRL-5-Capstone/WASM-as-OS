@@ -1491,3 +1491,120 @@ impl Runtime
     }
 
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stack_types_i32() {
+        let val = StackTypes::I32(42);
+        if let StackTypes::I32(v) = val {
+            assert_eq!(v, 42);
+        } else {
+            assert!(false, "Expected I32");
+        }
+    }
+}
+
+#[test]
+    fn test_stack_types_i64() {
+        let val = StackTypes::I64(1000000);
+        if let StackTypes::I64(v) = val {
+            assert_eq!(v, 1000000);
+        } else {
+            assert!(false, "Expected I64");
+        }
+    }
+
+    #[test]
+    fn test_stack_types_f32() {
+        let val = StackTypes::F32(3.14);
+        if let StackTypes::F32(v) = val {
+            assert!((v - 3.14).abs() < 0.001);
+        } else {
+            assert!(false, "Expected F32");
+        }
+    }
+
+    #[test]
+    fn test_stack_types_f64() {
+        let val = StackTypes::F64(2.71828);
+        if let StackTypes::F64(v) = val {
+            assert!((v - 2.71828).abs() < 0.0001);
+        } else {
+            assert!(false, "Expected F64");
+        }
+    }
+
+    #[test]
+    fn test_stack_types_clone() {
+        let original = StackTypes::I32(123);
+        let cloned = original.clone();
+        if let (StackTypes::I32(v1), StackTypes::I32(v2)) = (original, cloned) {
+            assert_eq!(v1, v2);
+        }
+    }
+
+    #[test]
+    fn test_stack_calls_basic() {
+        let call = StackCalls {
+            fnid: 0,
+            code: vec![],
+            loc: 0,
+            vars: vec![],
+        };
+        assert_eq!(call.fnid, 0);
+        assert_eq!(call.loc, 0);
+        assert_eq!(call.code.len(), 0);
+        assert_eq!(call.vars.len(), 0);
+    }
+
+    #[test]
+    fn test_stack_calls_with_vars() {
+        let call = StackCalls {
+            fnid: 5,
+            code: vec![],
+            loc: 10,
+            vars: vec![StackTypes::I32(42), StackTypes::I64(100)],
+        };
+        assert_eq!(call.fnid, 5);
+        assert_eq!(call.loc, 10);
+        assert_eq!(call.vars.len(), 2);
+    }
+
+    #[test]
+    fn test_flow_code_block() {
+        let flow = FlowCode {
+            flow_type: FlowType::Block,
+            break_tar: 15,
+            size: 3,
+            ret_typ: None,
+        };
+        assert_eq!(flow.break_tar, 15);
+        assert_eq!(flow.size, 3);
+    }
+
+    #[test]
+    fn test_flow_code_if() {
+        let flow = FlowCode {
+            flow_type: FlowType::If,
+            break_tar: 5,
+            size: 1,
+            ret_typ: Some(TypeBytes::I32),
+        };
+        assert_eq!(flow.break_tar, 5);
+        assert_eq!(flow.size, 1);
+    }
+
+    #[test]
+    fn test_flow_code_loop() {
+        let flow = FlowCode {
+            flow_type: FlowType::Loop,
+            break_tar: 0,
+            size: 10,
+            ret_typ: Some(TypeBytes::I64),
+        };
+        assert_eq!(flow.break_tar, 0);
+        assert_eq!(flow.size, 10);
+    }

@@ -766,5 +766,549 @@ mod tests {
         tcurs.parse_wasm();
     }
 
-
 }
+// Additional tests to add to the existing #[cfg(test)] mod tests section in wasm_engine.rs
+
+    // Tests for Curse::new
+    #[test] //9.1
+    fn test_curse_new() {
+        let bytes = vec![0x01, 0x02, 0x03, 0x04];
+        let curse = Curse::new(bytes.clone(), 4);
+        assert_eq!(curse.byte_vec, bytes);
+        assert_eq!(curse.loc, 8); // After magic number and version
+        assert_eq!(curse.len, 4);
+    }
+
+    #[test] //9.2
+    fn test_curse_new_empty() {
+        let bytes = vec![];
+        let curse = Curse::new(bytes.clone(), 0);
+        assert_eq!(curse.byte_vec.len(), 0);
+        assert_eq!(curse.loc, 8);
+        assert_eq!(curse.len, 0);
+    }
+
+    // Tests for set_code - Flow control instructions
+    #[test] //10.1
+    fn test_set_code_unreachable() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x00], 9);
+        curse.loc = 8; // Move to actual code byte
+        let code = curse.set_code();
+        assert!(matches!(code, Code::Unreachable));
+    }
+
+    #[test] //10.2
+    fn test_set_code_nop() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::Nop));
+    }
+
+    #[test] //10.3
+    fn test_set_code_block() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x02, 0x40], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::Block(_)));
+    }
+
+    #[test] //10.4
+    fn test_set_code_loop() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x03, 0x40], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::Loop(_)));
+    }
+
+    #[test] //10.5
+    fn test_set_code_if() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x04, 0x40], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::If(_)));
+    }
+
+    #[test] //10.6
+    fn test_set_code_else() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x05], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::Else));
+    }
+
+    #[test] //10.7
+    fn test_set_code_end() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x0B], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::End));
+    }
+
+    #[test] //10.8
+    fn test_set_code_return() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x0F], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::Return));
+    }
+
+    // Tests for set_code - Variable instructions
+    #[test] //11.1
+    fn test_set_code_local_get() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x20, 0x00], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::LocalGet(idx) => assert_eq!(idx, 0),
+            _ => panic!("Expected LocalGet"),
+        }
+    }
+
+    #[test] //11.2
+    fn test_set_code_local_set() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x21, 0x01], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::LocalSet(idx) => assert_eq!(idx, 1),
+            _ => panic!("Expected LocalSet"),
+        }
+    }
+
+    #[test] //11.3
+    fn test_set_code_local_tee() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x22, 0x02], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::LocalTee(idx) => assert_eq!(idx, 2),
+            _ => panic!("Expected LocalTee"),
+        }
+    }
+
+    #[test] //11.4
+    fn test_set_code_global_get() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x23, 0x00], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::GlobalGet(idx) => assert_eq!(idx, 0),
+            _ => panic!("Expected GlobalGet"),
+        }
+    }
+
+    #[test] //11.5
+    fn test_set_code_global_set() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x24, 0x00], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::GlobalSet(idx) => assert_eq!(idx, 0),
+            _ => panic!("Expected GlobalSet"),
+        }
+    }
+
+    // Tests for set_code - Memory instructions
+    #[test] //12.1
+    fn test_set_code_i32_load() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x28, 0x00, 0x04], 11);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::I32Load(off) => assert_eq!(off, 4),
+            _ => panic!("Expected I32Load"),
+        }
+    }
+
+    #[test] //12.2
+    fn test_set_code_i64_load() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x29, 0x00, 0x08], 11);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::I64Load(off) => assert_eq!(off, 8),
+            _ => panic!("Expected I64Load"),
+        }
+    }
+
+    #[test] //12.3
+    fn test_set_code_f32_load() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00], 11);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::F32Load(off) => assert_eq!(off, 0),
+            _ => panic!("Expected F32Load"),
+        }
+    }
+
+    #[test] //12.4
+    fn test_set_code_f64_load() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x00], 11);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::F64Load(off) => assert_eq!(off, 0),
+            _ => panic!("Expected F64Load"),
+        }
+    }
+
+    #[test] //12.5
+    fn test_set_code_i32_store() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x36, 0x00, 0x10], 11);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::I32Store(off) => assert_eq!(off, 16),
+            _ => panic!("Expected I32Store"),
+        }
+    }
+
+    #[test] //12.6
+    fn test_set_code_memory_size() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x3F], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::MemorySize));
+    }
+
+    #[test] //12.7
+    fn test_set_code_memory_grow() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x40], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::MemoryGrow));
+    }
+
+    // Tests for set_code - Constant instructions
+    #[test] //13.1
+    fn test_set_code_i32_const() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x41, 0x2A], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::I32Const(val) => assert_eq!(val, 42),
+            _ => panic!("Expected I32Const"),
+        }
+    }
+
+    #[test] //13.2
+    fn test_set_code_i64_const() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x42, 0x64], 10);
+        curse.loc = 8;
+        let code = curse.set_code();
+        match code {
+            Code::I64Const(val) => assert_eq!(val, 100),
+            _ => panic!("Expected I64Const"),
+        }
+    }
+
+    // Tests for set_code - Comparison instructions
+    #[test] //14.1
+    fn test_set_code_i32_eqz() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x45], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I32Eqz));
+    }
+
+    #[test] //14.2
+    fn test_set_code_i32_eq() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x46], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I32Eq));
+    }
+
+    #[test] //14.3
+    fn test_set_code_i32_ne() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x47], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I32Ne));
+    }
+
+    #[test] //14.4
+    fn test_set_code_i32_lts() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x48], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I32LtS));
+    }
+
+    #[test] //14.5
+    fn test_set_code_i64_eqz() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x50], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I64Eqz));
+    }
+
+    // Tests for set_code - Arithmetic instructions
+    #[test] //15.1
+    fn test_set_code_i32_add() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x6A], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I32Add));
+    }
+
+    #[test] //15.2
+    fn test_set_code_i32_sub() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x6B], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I32Sub));
+    }
+
+    #[test] //15.3
+    fn test_set_code_i32_mul() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x6C], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I32Mul));
+    }
+
+    #[test] //15.4
+    fn test_set_code_i64_add() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x7C], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::I64Add));
+    }
+
+    #[test] //15.5
+    fn test_set_code_f32_add() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x92], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::F32Add));
+    }
+
+    // Tests for set_code - Stack instructions
+    #[test] //16.1
+    fn test_set_code_drop() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x1A], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::Drop));
+    }
+
+    #[test] //16.2
+    fn test_set_code_select() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x1B], 9);
+        curse.loc = 8;
+        let code = curse.set_code();
+        assert!(matches!(code, Code::Select));
+    }
+
+    // Tests for leb_toi64
+    #[test] //17.1
+    fn test_leb_toi64_positive() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0xE5, 0x8E, 0x26], 11);
+        curse.loc = 8;
+        let val = curse.leb_toi64();
+        assert_eq!(val, 624485);
+    }
+
+    #[test] //17.2
+    fn test_leb_toi64_negative() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x7F], 9);
+        curse.loc = 8;
+        let val = curse.leb_toi64();
+        assert_eq!(val, -1);
+    }
+
+    // Tests for parse_wasm with different sections
+    #[test] //18.1
+    fn test_parse_wasm_with_type_section() {
+        // Minimal WASM with a type section defining one function type
+        let bytes = vec![
+            0x00, 0x61, 0x73, 0x6D, // magic
+            0x01, 0x00, 0x00, 0x00, // version
+            0x01, // type section
+            0x04, // section size
+            0x01, // 1 type
+            0x60, 0x00, 0x00, // func type: () -> ()
+        ];
+        let mut curse = Curse::new(bytes, 15);
+        let module = curse.parse_wasm();
+        assert_eq!(module.typs.len(), 1);
+    }
+
+    #[test] //18.2
+    fn test_parse_wasm_with_memory_section() {
+        let bytes = vec![
+            0x00, 0x61, 0x73, 0x6D, // magic
+            0x01, 0x00, 0x00, 0x00, // version
+            0x05, // memory section
+            0x03, // section size
+            0x01, // 1 memory
+            0x00, 0x01, // min=1, no max
+        ];
+        let mut curse = Curse::new(bytes, 14);
+        let module = curse.parse_wasm();
+        assert_eq!(module.memy.len(), 1);
+        assert_eq!(module.memy[0].0, 1);
+        assert_eq!(module.memy[0].1, None);
+    }
+
+    #[test] //18.3
+    fn test_parse_wasm_with_export_section() {
+        let bytes = vec![
+            0x00, 0x61, 0x73, 0x6D, // magic
+            0x01, 0x00, 0x00, 0x00, // version
+            0x07, // export section
+            0x08, // section size
+            0x01, // 1 export
+            0x04, // name length
+            0x6D, 0x61, 0x69, 0x6E, // "main"
+            0x00, // function export
+            0x00, // function index 0
+        ];
+        let mut curse = Curse::new(bytes, 19);
+        let module = curse.parse_wasm();
+        assert_eq!(module.exps.len(), 1);
+        assert_eq!(module.exps[0].name, "main");
+    }
+
+    // Tests for wasm_engine function
+    #[test] //19.1
+    fn test_wasm_engine_invalid_magic() {
+        use std::io::Write;
+        use std::path::PathBuf;
+        
+        let temp_file = PathBuf::from("/tmp/test_invalid_magic.wasm");
+        let mut file = std::fs::File::create(&temp_file).unwrap();
+        file.write_all(&[0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x00, 0x00]).unwrap();
+        
+        let result = wasm_engine(&temp_file);
+        assert_eq!(result, false);
+        
+        std::fs::remove_file(&temp_file).ok();
+    }
+
+    #[test] //19.2
+    fn test_wasm_engine_invalid_version() {
+        use std::io::Write;
+        use std::path::PathBuf;
+        
+        let temp_file = PathBuf::from("/tmp/test_invalid_version.wasm");
+        let mut file = std::fs::File::create(&temp_file).unwrap();
+        file.write_all(&[0x00, 0x61, 0x73, 0x6D, 0x02, 0x00, 0x00, 0x00]).unwrap();
+        
+        let result = wasm_engine(&temp_file);
+        assert_eq!(result, false);
+        
+        std::fs::remove_file(&temp_file).ok();
+    }
+
+    #[test] //19.3
+    fn test_wasm_engine_too_short() {
+        use std::io::Write;
+        use std::path::PathBuf;
+        
+        let temp_file = PathBuf::from("/tmp/test_too_short.wasm");
+        let mut file = std::fs::File::create(&temp_file).unwrap();
+        file.write_all(&[0x00, 0x61, 0x73]).unwrap();
+        
+        let result = wasm_engine(&temp_file);
+        assert_eq!(result, false);
+        
+        std::fs::remove_file(&temp_file).ok();
+    }
+
+    #[test] //19.4
+    fn test_wasm_engine_valid_empty() {
+        use std::io::Write;
+        use std::path::PathBuf;
+        
+        let temp_file = PathBuf::from("/tmp/test_valid_empty.wasm");
+        let mut file = std::fs::File::create(&temp_file).unwrap();
+        file.write_all(&[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]).unwrap();
+        
+        let result = wasm_engine(&temp_file);
+        assert_eq!(result, true);
+        
+        std::fs::remove_file(&temp_file).ok();
+    }
+
+    // Additional edge case tests
+    #[test] //20.1
+    #[should_panic(expected = "Cursor Bounds Breached!!!")]
+    fn test_set_code_out_of_bounds() {
+        let mut curse = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00], 8);
+        curse.loc = 8; // At the end
+        curse.set_code(); // Should panic
+    }
+
+    #[test] //20.2
+    fn test_multiple_globals_parsing() {
+        let bytes = vec![
+            0x00, 0x61, 0x73, 0x6D, // magic
+            0x01, 0x00, 0x00, 0x00, // version
+            0x06, // global section
+            0x0A, // section size
+            0x02, // 2 globals
+            0x7F, 0x00, 0x41, 0x2A, 0x0B, // i32, immutable, i32.const 42, end
+            0x7E, 0x01, 0x42, 0x64, 0x0B, // i64, mutable, i64.const 100, end
+        ];
+        let mut curse = Curse::new(bytes, 21);
+        let module = curse.parse_wasm();
+        assert_eq!(module.glob.len(), 2);
+        assert_eq!(module.glob[0].ismut, false);
+        assert_eq!(module.glob[1].ismut, true);
+    }
+
+    #[test] //20.3
+    fn test_function_section_parsing() {
+        let bytes = vec![
+            0x00, 0x61, 0x73, 0x6D, // magic
+            0x01, 0x00, 0x00, 0x00, // version
+            0x03, // function section
+            0x03, // section size
+            0x02, // 2 functions
+            0x00, 0x01, // type indices
+        ];
+        let mut curse = Curse::new(bytes, 15);
+        let module = curse.parse_wasm();
+        assert_eq!(module.fnid.len(), 2);
+        assert_eq!(module.fnid[0], 0);
+        assert_eq!(module.fnid[1], 1);
+    }
+
+    #[test] //20.4
+    fn test_start_section_parsing() {
+        let bytes = vec![
+            0x00, 0x61, 0x73, 0x6D, // magic
+            0x01, 0x00, 0x00, 0x00, // version
+            0x08, // start section
+            0x01, // section size
+            0x05, // start function index
+        ];
+        let mut curse = Curse::new(bytes, 12);
+        let module = curse.parse_wasm();
+        assert_eq!(module.strt, Some(5));
+    }
+
+    #[test] //20.5
+    fn test_table_section_parsing() {
+        let bytes = vec![
+            0x00, 0x61, 0x73, 0x6D, // magic
+            0x01, 0x00, 0x00, 0x00, // version
+            0x04, // table section
+            0x04, // section size
+            0x01, // 1 table
+            0x70, 0x00, 0x0A, // funcref, min=10, no max
+        ];
+        let mut curse = Curse::new(bytes, 15);
+        let module = curse.parse_wasm();
+        assert_eq!(module.tabs.len(), 1);
+        assert_eq!(module.tabs[0].tabmin, 10);
+        assert_eq!(module.tabs[0].tabmax, None);
+    }
+
+    
+  
+    
