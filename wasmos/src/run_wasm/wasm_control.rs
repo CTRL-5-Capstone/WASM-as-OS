@@ -8,11 +8,11 @@ pub fn start_wasm_by_id(wasm_list: &mut WasmList, id: &str) -> bool {
     let wasm_vec = wasm_tup.0;
     
     for wasm in wasm_vec {
-        if wasm.lock().unwrap().wasm_file.name == id {
+        if  wasm.lock().unwrap().wasm_file.name == id {
             let path_name = wasm.lock().unwrap().wasm_file.path_to.clone();
             let path = Path::new(&path_name);
             if path.exists() {
-                if wasm_engine(path) {
+                if wasm_engine(id.to_string(), path) {
                     wasm_list.running_true(wasm.clone());
                     return true;
                 } else {
@@ -64,11 +64,12 @@ pub fn start_wasm(wasm_list: &mut WasmList)
             else 
             {
                 //Stop a wasm file here or from a function
+                let name = &wasm_vec[choice - 1].lock().unwrap().wasm_file.name.clone();
                 let path_name = &wasm_vec[choice - 1].lock().unwrap().wasm_file.path_to.clone();
                 let path = Path::new(&path_name);
                 if path.exists()
                 {
-                    if !wasm_engine(path)
+                    if !wasm_engine(name.to_string(), path)
                     {
                         wasm_list.delete(halted_vec[choice].clone());
                     }

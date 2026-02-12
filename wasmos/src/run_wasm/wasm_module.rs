@@ -1,6 +1,7 @@
 #[derive(Clone)]
 pub struct Module
 {
+    pub name: String,
     pub imps: Vec<Import>,
     pub typs: Vec<Types>,
     pub fnid: Vec<u32>,
@@ -21,6 +22,7 @@ impl Module
     {
         Self 
         {
+            name: String::new(),
             imps: Vec::new(),
             typs: Vec::new(),
             fnid: Vec::new(),

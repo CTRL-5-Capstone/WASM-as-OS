@@ -1,7 +1,9 @@
 use core::panic;
-
 use super::wasm_module::*;
-#[derive(Clone)]
+use std::fs::File;
+use std::io::{self, Write};
+use std::path::Path;
+#[derive(Clone, Debug)]
 pub enum StackTypes
 {
     I32(i32),
@@ -74,8 +76,17 @@ impl Runtime
             }
         }
         if !mimpbool{
-            memmin = module.memy[0].memmin;
-            memmax = module.memy[0].memmax;
+            
+            if !module.memy.is_empty()
+            {
+                memmin = module.memy[0].memmin;
+                memmax = module.memy[0].memmax;
+            }
+            else 
+            {
+                memmin = 0;
+                memmax = None;    
+            }
         }
         let mut bytes =  memmin as usize;
         bytes *= 65536;
@@ -105,7 +116,11 @@ impl Runtime
             let ismut = global.ismut;
             globs.push(GlobsGlobal{typ: gval, ismut});
         }
-        let mut functab: Vec<Option<u32>> = vec![None; module.tabs[0].tabmin as usize];
+        let mut functab: Vec<Option<u32>> = Vec::new();
+        if !module.tabs.is_empty()
+        {
+            functab = vec![None; module.tabs[0].tabmin as usize];
+        }
         for elm in &module.elms
         {
             let mut off = match elm.elmoff
@@ -122,8 +137,11 @@ impl Runtime
         }
         Runtime{module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs,}
     }
-    pub fn run_prog(&mut self) -> Option<StackTypes>
+    pub fn run_prog(&mut self)
     {
+        let pstring = format!("{}{}{}", "./wasm_files/", self.module.name, ".txt");
+        let path = Path::new(&pstring);
+        let mut wasfile = File::create(path).expect("Log file could not be created");
         //simple_logging::log_to_file("wasm.log", log::LevelFilter::Info);
         //log::info!("Wasm running");
         if let Some(starter) = self.module.strt
@@ -151,11 +169,48 @@ impl Runtime
                 {
                     vars.push(styp.clone());
                 }
-
-
             }
             self.call_stack.push(StackCalls { fnid: strtind, code: func.code.clone(), loc: 0, vars,});
         }
+        else
+        {
+            let func = &self.module.fcce[self.module.imports as usize];
+            let mut vars = Vec::new();
+            for arg in &self.module.typs[self.module.imports as usize].args
+            {
+                let ar = match arg
+                {
+                    Some(TypeBytes::I32) => StackTypes::I32(0),
+                    Some(TypeBytes::I64) => StackTypes::I64(0),
+                    Some(TypeBytes::F32) => StackTypes::F32(0.0),
+                    Some(TypeBytes::F64) => StackTypes::F64(0.0),
+                    None => panic!("Invalid argument start function"), 
+                };
+                    vars.push(ar);
+            }
+            for (loc, typ) in &func.vars
+            {
+                let ty = match typ
+                {
+                    Some(val) => val,
+                    None => panic!("Call vars err"),
+                };
+                let var = match ty 
+                {
+                    TypeBytes::I32 => StackTypes::I32(0),
+                    TypeBytes::I64 => StackTypes::I64(0),
+                    TypeBytes::F32 => StackTypes::F32(0.0),
+                    TypeBytes::F64 => StackTypes::F64(0.0),
+                };
+
+                for _ in 0..*loc
+                {
+                    vars.push(var.clone())
+                }
+            }
+            self.call_stack.push(StackCalls { fnid: 0, code: func.code.clone(), loc: 0, vars});
+        }
+        let mut incount = 0;
         'run:
         loop {
             let call = match self.call_stack.last_mut()
@@ -163,7 +218,7 @@ impl Runtime
                 Some(caller) => caller,
                 None => {
                     //log::info!("End of wasm");
-                    return None
+                    return;
                 }
             };
             if call.loc >= call.code.len()
@@ -172,7 +227,7 @@ impl Runtime
                 self.call_stack.pop();
                 if self.call_stack.is_empty()
                 {
-                    return turn;
+                    return;
                 }
                 if let Some(turner) = turn {self.value_stack.push(turner)}
                 continue 'run;
@@ -224,7 +279,8 @@ impl Runtime
                     self.call_stack.pop();
                     if self.call_stack.is_empty(){
                         //log::info!("Return");
-                        return turn;
+                        //return turn;
+                        return;
                     }
                     if let Some(val) = turn
                     {
@@ -235,6 +291,7 @@ impl Runtime
                 },
                 Code::Call(ind) => 
                 {
+                    writeln!(&mut wasfile,"{}. Call {}", incount, ind).expect("File Write Error");
                     //log::info!("Function Call, ID: {}", ind);
                     let typind = self.module.fnid[ind as usize] as usize;
                     let typ = &self.module.typs[typind];
@@ -248,7 +305,7 @@ impl Runtime
                     cvec.reverse();
                     //make call
                     if typ.args.len() != cvec.len(){panic!("Call vec length err");}
-                    let func = &self.module.fcce[ind as usize];
+                    let func = &self.module.fcce[(ind - self.module.imports) as usize];
                     let fcode = &func.code;
                     let mut vars = Vec::new();
                     vars.extend(cvec);
@@ -273,7 +330,7 @@ impl Runtime
                         }
 
                     }
-                    self.call_stack.push(StackCalls{ fnid: ind as usize, code: fcode.to_vec(), loc: 0, vars});
+                    self.call_stack.push(StackCalls{ fnid: (ind - self.module.imports)as usize, code: fcode.to_vec(), loc: 0, vars});
                     continue 'run;
                 },
                 /*Code::CallIndirect(ind) => 
@@ -283,7 +340,8 @@ impl Runtime
                 //Args
                 Code::Drop =>
                 {
-                    let _waste = self.value_stack.pop();
+                    let waste = self.value_stack.pop();
+                    writeln!(&mut wasfile,"{}. Drop {:?}", incount, waste).expect("File Write Error");
                 },
                 Code::Select =>
                 {
@@ -291,6 +349,7 @@ impl Runtime
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Stack Error Select"),
                     };
+                    writeln!(&mut wasfile,"{}. Select {}", incount, sel).expect("File Write Error");
                     let val2 = self.value_stack.pop().expect("Stack Sel Fail");
                     let val1 = self.value_stack.pop().expect("Stack Sel Fail");
 
@@ -300,11 +359,13 @@ impl Runtime
                 //Vars
                 Code::LocalGet(loc) => {
                     let val = call.vars.get(loc as usize).unwrap().clone();
+                    writeln!(&mut wasfile,"{}. Local Get({}): {:?}", incount, loc, val).expect("File Write Error");
                     self.value_stack.push(val);
                     //log::info!("Local Get: Index: {}, Value: {}", loc, val);
                 },
                 Code::LocalSet(loc) => {
                     let to_stack = self.value_stack.pop().unwrap();
+                    writeln!(&mut wasfile,"{}. Local Set({}) {:?}", incount, loc, to_stack).expect("File Write Error");
                     call.vars[loc as usize] = to_stack;
                     //log::info!("Local Set: Index: {}, Value: {}", loc, to_stack);
                 },
@@ -316,13 +377,16 @@ impl Runtime
                     {
                         panic!("LocalT: Index out of calls");
                     }
+                    writeln!(&mut wasfile,"{}. LocalTee({}) {:?}", incount, loc, to_loc).expect("File Write Error");
                     call.vars[ind] = to_loc;
+
                 },
                 Code::GlobalGet(loc) =>
                 {
                     let mut loc = loc as usize;
                     assert!(loc <= self.globs.len());
                     let to_stack = self.globs[loc as usize].typ.clone();
+                    writeln!(&mut wasfile,"{}. Global Get({}) {:?}", incount, loc, to_stack).expect("File Write Error");
                     self.value_stack.push(to_stack);
                     //log::info!("Global Get: Index: {}, Value: {}", loc, to_stack);
                 },
@@ -330,6 +394,7 @@ impl Runtime
                 {
                     let to_glob = self.value_stack.pop().expect("Stack empty globset");
                     assert!(self.globs[loc as usize].ismut);
+                    writeln!(&mut wasfile,"{}. Global Set({}) {:?}", incount, loc, to_glob).expect("File Write Error");
                     self.globs[loc as usize].typ = to_glob;
                     //log::info!("Global Set: Index: {}, Value: {}", loc, to_glob);
                 },
@@ -347,6 +412,7 @@ impl Runtime
                     let bytes = &self.mem[of..of + 4];
                     let to_stack = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
                     let val = StackTypes::I32(to_stack);
+                    writeln!(&mut wasfile,"{}. I32Load({}) {}", incount, off, to_stack).expect("File Write Error");
                     self.value_stack.push(val);
                     //log::info!("I32 Load: Memomory Location: {}, Value: {}", memloc, val);
                 },
@@ -360,6 +426,7 @@ impl Runtime
                     let of = offloc as usize;              
                     let bytes = &self.mem[of..of + 8];
                     let to_stack = i64::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]]);
+                    writeln!(&mut wasfile,"{}. I64Load({}) {}", incount, off, to_stack).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(to_stack));
                 },
                 Code::F32Load(off) => 
@@ -372,6 +439,7 @@ impl Runtime
                     let of = offloc as usize;              
                     let bytes = &self.mem[of..of + 4];
                     let to_stack = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                    writeln!(&mut wasfile,"{}. F32Load({}) {}", incount, off, to_stack).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(to_stack));
                 },
                 Code::F64Load(off) =>
@@ -384,6 +452,7 @@ impl Runtime
                     let of = offloc as usize;              
                     let bytes = &self.mem[of..of + 8];
                     let to_stack = f64::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]]);
+                    writeln!(&mut wasfile,"{}. F64Load({}) {}", incount, off, to_stack).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(to_stack));
                 },
                 //I32
@@ -396,6 +465,7 @@ impl Runtime
                     };
                     let offloc = (off + memloc) as usize;
                     let val = self.mem[offloc] as i8;
+                    writeln!(&mut wasfile,"{}. I32Load8({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(val as i32));
                 },
                 Code::I32Load8U(off) =>
@@ -407,6 +477,7 @@ impl Runtime
                     };
                     let offloc = (off + memloc) as usize;
                     let val = self.mem[offloc] as u8;
+                    writeln!(&mut wasfile,"{}. I32Load8U({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(val as i32));
 
                 },
@@ -420,6 +491,7 @@ impl Runtime
                     let offloc = (off + memloc) as usize;
                     let bytes = &self.mem[offloc..offloc + 2];
                     let val = i16::from_le_bytes([bytes[0], bytes[1]]);
+                    writeln!(&mut wasfile,"{}. I32Load16S({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(val as i32));
                 },
                 Code::I32Load16U(off) => 
@@ -432,6 +504,7 @@ impl Runtime
                     let offloc = (off + memloc) as usize;
                     let bytes = &self.mem[offloc..offloc + 2];
                     let val = u16::from_le_bytes([bytes[0], bytes[1]]);
+                    writeln!(&mut wasfile,"{}. I32Load16U({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(val as i32));
                 },
                 //I64
@@ -444,6 +517,7 @@ impl Runtime
                     };
                     let offloc = (off + memloc) as usize;
                     let val = self.mem[offloc] as i8 as i64;
+                    writeln!(&mut wasfile,"{}. I64Load8S({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(val));
                 },
                 Code::I64Load8U(off) => 
@@ -455,6 +529,7 @@ impl Runtime
                     };
                     let offloc = (memloc + off) as usize;
                     let val = self.mem[offloc] as u8 as i64;
+                    writeln!(&mut wasfile,"{}. I64Load8U({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(val));
                 },
                 Code::I64Load16S(off) =>
@@ -467,6 +542,7 @@ impl Runtime
                     let offloc = (off + memloc) as usize;
                     let bytes = &self.mem[offloc..offloc + 2];
                     let val = i16::from_le_bytes([bytes[0], bytes[1]]);
+                    writeln!(&mut wasfile,"{}. I64Load16S({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(val as i64));
                 },
                 Code::I64Load16U(off) =>
@@ -479,6 +555,7 @@ impl Runtime
                     let offloc = (off + memloc) as usize;
                     let bytes = &self.mem[offloc..offloc + 2];
                     let val = u16::from_le_bytes([bytes[0], bytes[1]]);
+                    writeln!(&mut wasfile,"{}. I64Load16U({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(val as i64));
 
                 },
@@ -492,6 +569,7 @@ impl Runtime
                     let offloc = (off + memloc) as usize;
                     let bytes = &self.mem[offloc..offloc + 4];
                     let val = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                    writeln!(&mut wasfile,"{}. I64Load32S({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(val as i64));
                 },
                 Code::I64Load32U(off) =>
@@ -503,7 +581,8 @@ impl Runtime
                     };
                     let offloc = (off + memloc) as usize;
                     let bytes = &self.mem[offloc..offloc + 4];
-                    let val = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);   
+                    let val = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                    writeln!(&mut wasfile,"{}. I64Load32U({}) {}", incount, off, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(val as i64));
                 },
                 //STR
@@ -521,6 +600,7 @@ impl Runtime
                     };
                     let uloc = (off + memloc) as usize;
                     let bytes = var.to_le_bytes();
+                    writeln!(&mut wasfile,"{}. I32Store({}) {:?}", incount, off, bytes).expect("File Write Error");
                     self.mem[uloc..uloc + 4].copy_from_slice(&bytes);
                     //log::info!("I32 Store: Memory ");
                 },
@@ -538,6 +618,7 @@ impl Runtime
                     };
                     let uloc = (off + memloc) as usize;
                     let bytes = var.to_le_bytes();
+                    writeln!(&mut wasfile,"{}. I64Store({}) {:?}", incount, off, bytes).expect("File Write Error");
                     self.mem[uloc..uloc + 8].copy_from_slice(&bytes);
                 },
                 Code::F32Store(off) =>
@@ -554,6 +635,7 @@ impl Runtime
                     };
                     let uloc = (off + memloc) as usize;
                     let bytes = var.to_le_bytes();
+                    writeln!(&mut wasfile,"{}. F32Store({}) {:?}", incount, off, bytes).expect("File Write Error");
                     self.mem[uloc..uloc + 4].copy_from_slice(&bytes);                    
                 },
                 Code::F64Store(off) =>
@@ -570,6 +652,7 @@ impl Runtime
                     };
                     let uloc = (off + memloc) as usize;
                     let bytes = var.to_le_bytes();
+                    writeln!(&mut wasfile,"{}. F64Store({}) {:?}", incount, off, bytes).expect("File Write Error");
                     self.mem[uloc..uloc + 8].copy_from_slice(&bytes);
                 },
                 Code::I32Store8(off) =>
@@ -585,6 +668,7 @@ impl Runtime
                         _ => panic!("Invalid stacktype I32Store8"),
                     };
                     let uloc = (off + memloc) as usize;
+                    writeln!(&mut wasfile,"{}. I32Store8({}) {}", incount, off, var).expect("File Write Error");
                     self.mem[uloc] = var; 
                 },
                 Code::I32Store16(off) =>
@@ -600,6 +684,7 @@ impl Runtime
                         _ => panic!("Invalid stacktype I32Store8"),
                     };
                     let uloc = (off + memloc) as usize;
+                    writeln!(&mut wasfile,"{}. I32Store16({}) {}", incount, off, var).expect("File Write Error");
                     self.mem[uloc..uloc + 2].copy_from_slice(&var.to_le_bytes()); 
                 },
                 Code::I64Store8(off) =>
@@ -615,6 +700,7 @@ impl Runtime
                         _ => panic!("Invalid stacktype I32Store8"),
                     };
                     let uloc = (off + memloc) as usize;
+                    writeln!(&mut wasfile,"{}. I64Store8({}) {}", incount, off, var).expect("File Write Error");
                     self.mem[uloc] = var; 
                 },
                 Code::I64Store16(off) =>
@@ -630,6 +716,7 @@ impl Runtime
                         _ => panic!("Invalid stacktype I32Store8"),
                     };
                     let uloc = (off + memloc) as usize;
+                    writeln!(&mut wasfile,"{}. I64Store16({}) {}", incount, off, var).expect("File Write Error");
                     self.mem[uloc..uloc + 2].copy_from_slice(&var.to_le_bytes()); 
                 },
                 Code::I64Store32(off) =>
@@ -645,11 +732,13 @@ impl Runtime
                         _ => panic!("Invalid stacktype I32Store8"),
                     };
                     let uloc = (off + memloc) as usize;
+                    writeln!(&mut wasfile,"{}. I64Store32({}) {}", incount, off, var).expect("File Write Error");
                     self.mem[uloc..uloc + 4].copy_from_slice(&var.to_le_bytes()); 
                 },
                 Code::MemorySize => 
                 {
                     let memlen = self.mem.len();
+                    writeln!(&mut wasfile,"{}. MemorySize {} ", incount, memlen).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32((memlen/65536) as i32));
                 },
                 Code::MemoryGrow => 
@@ -667,24 +756,28 @@ impl Runtime
                         assert!(val > newmem);
                     }
                     self.mem.resize(newmem as usize, 0);
-
+                    writeln!(&mut wasfile,"{}. MemoryGrow New: {} Old: {}", incount, newmem, curmem).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(curmem));
 
                 },
                 //Cons
                 Code::I32Const(cons) => {
+                    writeln!(&mut wasfile,"{}. I32Const {}", incount, cons).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(cons));
                     //log::info!("I32 Constant: {}", cons);
                 },
                 Code::I64Const(cons) => {
+                    writeln!(&mut wasfile,"{}. I64Const {}", incount, cons).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(cons));
                     //log::info!("I64 Constant: {}", cons);
                 },
                 Code::F32Const(cons) => {
+                    writeln!(&mut wasfile,"{}. F32Const {}", incount, cons).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(cons));
                     //log::info!("F32 Constant: {}", cons);
                 },
                 Code::F64Const(cons) => {
+                    writeln!(&mut wasfile,"{}. F64Const {}", incount, cons).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(cons));
                     //log::info!("F64 Constant {}", cons);
                 },
@@ -696,6 +789,7 @@ impl Runtime
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Eqz {}", incount, i_val).expect("File Write Error");
                     match i_val
                     {
                         0 => self.value_stack.push(StackTypes::I32(1)),
@@ -714,6 +808,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Eq Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 == val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -728,6 +823,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Ne Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 != val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -742,6 +838,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32LtS Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 < val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -756,6 +853,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32LtU Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 < val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -771,6 +869,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32GtS Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 > val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -785,6 +884,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32GtU Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 > val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -799,6 +899,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32LeS Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 <= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -813,6 +914,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32LeU Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 <= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -827,6 +929,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32GeS Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 >= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -841,6 +944,7 @@ impl Runtime
                         Some(StackTypes::I32(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32GeU Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 >= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -851,6 +955,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Eqz {}", incount, val).expect("File Write Error");
                     if val == 0 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -865,6 +970,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Eq Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 == val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -879,6 +985,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Ne Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 != val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -893,6 +1000,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64LtS Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 < val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -907,6 +1015,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64LtU Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 < val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -921,6 +1030,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64GtS Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 > val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -935,6 +1045,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64GtU Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 > val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -949,6 +1060,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64LeS Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 <= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -963,6 +1075,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64LeU Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 <= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -977,6 +1090,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64GeS Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 >= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -991,6 +1105,7 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64GeU Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 >= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1006,6 +1121,7 @@ impl Runtime
                         Some(StackTypes::F32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Eq Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 == val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1020,6 +1136,7 @@ impl Runtime
                         Some(StackTypes::F32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Ne Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 != val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1034,6 +1151,7 @@ impl Runtime
                         Some(StackTypes::F32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Lt Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 < val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1048,6 +1166,7 @@ impl Runtime
                         Some(StackTypes::F32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Gt Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 > val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1062,6 +1181,7 @@ impl Runtime
                         Some(StackTypes::F32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Le Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 <= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1075,6 +1195,7 @@ impl Runtime
                         _ => panic!("Invalid type stack error"),
                     };
                     let leading_zeros = val.leading_zeros();
+                    writeln!(&mut wasfile,"{}. I32Clz {}", incount, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(leading_zeros as i32));
                 },
 //               Code::I32Ctz => (),
@@ -1085,6 +1206,7 @@ impl Runtime
                         _ => panic!("Invalid type stack error"),
                     };
                     let trailing_zeros = val.trailing_zeros();
+                    writeln!(&mut wasfile,"{}. I32Ctz {}", incount, val).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(trailing_zeros as i32));
                 },  
 //                Code::I32Popcnt => (),
@@ -1094,6 +1216,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Popcnt {}", incount, val).expect("File Write Error");
                     let popcnt = val.count_ones();
                     self.value_stack.push(StackTypes::I32(popcnt as i32));
                 },  
@@ -1108,6 +1231,7 @@ impl Runtime
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Add error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Add Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(val1+val2));
                     //log::info!("I32 Add: {} + {}", y, x);
                 },
@@ -1122,6 +1246,7 @@ impl Runtime
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Sub error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Sub Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(val1-val2));
                     //log::info!("I32 Subtract: {} - {}", y, x);
                 },
@@ -1135,33 +1260,36 @@ impl Runtime
                     {
                         Some(StackTypes::I32(val)) => val,
                         _ => panic!("Mul error"),
-                    };    
+                    };
+                    writeln!(&mut wasfile,"{}. I32Mul Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(val1*val2));
                     //log::info!("I32 Multiplication: {} * {}", y, x);
                 },
 //                Code::I32DivS => (),
                     Code::I32DivS => {
-                    let b = match self.value_stack.pop() {
+                    let val2 = match self.value_stack.pop() {
                         Some(StackTypes::I32(v)) => v,
                         _ => panic! ("I32Divs error"),
                     };
-                    let a = match self.value_stack.pop() {
+                    let val1 = match self.value_stack.pop() {
                         Some(StackTypes::I32(v)) => v,
                         _ => panic! ("I32Divs error"),
                     };
-                   self.value_stack.push(StackTypes::I32(a / b));
+                    writeln!(&mut wasfile,"{}. I32DivS Val1: {}/ Val2: {}", incount, val1, val2).expect("File Write Error");
+                   self.value_stack.push(StackTypes::I32(val1 / val2));
                 },
 //                Code::I32DivU => (),
                 Code::I32DivU => {
-                    let b = match self.value_stack.pop() {
+                    let val2 = match self.value_stack.pop() {
+                    Some(StackTypes::I32(v)) => v as u32,
+                    _ => panic! ("I32Divu error"),
+                    };
+                let val1 = match self.value_stack.pop() {
                     Some(StackTypes::I32(v)) => v as u32,
                     _ => panic! ("I32Divu error"),
                 };
-                let a = match self.value_stack.pop() {
-                    Some(StackTypes::I32(v)) => v as u32,
-                    _ => panic! ("I32Divu error"),
-                };
-                self.value_stack.push(StackTypes::I32((a / b) as i32));
+                writeln!(&mut wasfile,"{}. I32DivU Val1: {}/ Val2: {}", incount, val1, val2).expect("File Write Error");
+                self.value_stack.push(StackTypes::I32((val1 / val2) as i32));
                 },
                 //                Code::I32RemS => (),
                 Code::I32RemS => {
@@ -1173,6 +1301,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic! ("I32Rems error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32RemS Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                 self.value_stack.push(StackTypes::I32(a % b));
                 },
 
@@ -1186,7 +1315,8 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v as u32,
                         _ => panic! ("I32Remu error"),
                     };
-                self.value_stack.push(StackTypes::I32((a % b) as i32));
+                    writeln!(&mut wasfile,"{}. I32RemU Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
+                    self.value_stack.push(StackTypes::I32((a % b) as i32));
                 },
                 //                Code::I32And => (),
                 Code::I32And => {
@@ -1198,6 +1328,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic!("I32And error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32And Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(a & b));
                 },
                 //                Code::I32Or => (),
@@ -1210,6 +1341,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic!("I32Or error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Or Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(a | b));
                 },
                 //                Code::I32Xor => (),
@@ -1222,6 +1354,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic!("I32Xor error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Xor Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(a ^ b));
                 },
                 //                Code::I32Shl => (),
@@ -1234,6 +1367,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic!("I32Shl error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Shl Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(a << b));
                 },
                 //                Code::I32ShrS => (),
@@ -1246,6 +1380,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic!("I32ShrS error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32ShrS Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(a >> b));
                 },
                 //                Code::I32ShrU => (),
@@ -1258,6 +1393,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v as u32,
                         _ => panic!("I32ShrU error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32ShrU Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32((a >> b) as i32));
                 },
                 //                Code::I32Rotl => (),
@@ -1270,6 +1406,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic!("I32Rotl error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Rotl Shift: {} Val: {}", incount, shift, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(value.rotate_left(shift) as i32));
                 },
                 //                Code::I32Rotr => (),
@@ -1282,6 +1419,7 @@ impl Runtime
                         Some(StackTypes::I32(v)) => v,
                         _ => panic!("I32Rotr error"),
                     };
+                    writeln!(&mut wasfile,"{}. I32Rotr Shift: {} Value: {}", incount, shift, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(value.rotate_right(shift) as i32));
                 },
                                 //I64
@@ -1291,6 +1429,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("I64Clz error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Clz Value: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(value.leading_zeros() as i64));
                 },
                 //                Code::I64Ctz => (),
@@ -1299,6 +1438,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("I64Ctz error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Ctz Value: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(value.trailing_zeros() as i64));
                 },
                 //                Code::I64Popcnt => (),
@@ -1307,6 +1447,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("I64Popcnt error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Popcnt Value: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(value.count_ones() as i64));
                 },
                 //                Code::I64Add => (),
@@ -1321,6 +1462,7 @@ impl Runtime
                         Some(StackTypes::I64(val)) => val,
                         _ => panic!("Add error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Add Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(a+b));
                 },
                 //                Code::I64Sub => (),
@@ -1335,6 +1477,7 @@ impl Runtime
                         Some(StackTypes::I64(val)) => val,
                         _ => panic!("Sub error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Sub Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(a-b));
                 },
                 //                Code::I64Mul => (),
@@ -1349,6 +1492,7 @@ impl Runtime
                         Some(StackTypes::I64(val)) => val,
                         _ => panic!("Mul error"),
                     };    
+                    writeln!(&mut wasfile,"{}. I64Mul Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(a*b));
                 },
                 //                Code::I64DivS => (),
@@ -1361,7 +1505,8 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic! ("I64Divs error"),
                     };
-                self.value_stack.push(StackTypes::I64(a / b));
+                    writeln!(&mut wasfile,"{}. I64DivS Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
+                    self.value_stack.push(StackTypes::I64(a / b));
                 },
                 //                Code::I64DivU => (),
                 Code::I64DivU => {
@@ -1373,6 +1518,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v as u64,
                         _ => panic! ("I64Divu error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64DivU Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64((a / b) as i64));
                 },
                 //                Code::I64RemS => (),
@@ -1385,7 +1531,8 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic! ("I64Rems error"),
                     };
-                self.value_stack.push(StackTypes::I64(a % b));
+                    writeln!(&mut wasfile,"{}. I64RemS Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
+                    self.value_stack.push(StackTypes::I64(a % b));
                 },
                 //                Code::I64RemU => (),
                 Code::I64RemU => {
@@ -1397,7 +1544,8 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v as u64,
                         _ => panic! ("I64Remu error"),
                     };
-                self.value_stack.push(StackTypes::I64((a % b) as i64));
+                    writeln!(&mut wasfile,"{}. I64RemU Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
+                    self.value_stack.push(StackTypes::I64((a % b) as i64));
                 },
                 //                Code::I64And => (),
                 Code::I64And => {
@@ -1409,6 +1557,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("I64And error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64And Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(a & b));
                 },
                 //                Code::I64Or => (),
@@ -1421,6 +1570,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("I64Or error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Or Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(a | b));
                 },
                 //                Code::I64Xor => (),
@@ -1433,6 +1583,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("I64Xor error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Xor Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(a ^ b));
                 },
                 //                Code::I64Shl => (),
@@ -1445,6 +1596,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("I64Shl error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Shl Shift: {} Val: {}", incount, shift, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(value << shift));
                 },
                 //                Code::I64ShrS => (),
@@ -1457,6 +1609,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v,
                         _ => panic!("I64ShrS error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64ShrS Shift: {} Val: {}", incount, shift, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(value >> shift));
                 },
                 //                Code::I64ShrU => (),
@@ -1469,6 +1622,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v as u64,
                         _ => panic!("I64ShrU error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64 Shift: {} Value: {}", incount, shift, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64((value >> shift) as i64));
                 },
                 //                Code::I64Rotl => (),
@@ -1481,6 +1635,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v as u64,
                         _ => panic!("I64Rotl error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Rotl Shift: {} value: {}", incount, shift, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(value.rotate_left(shift) as i64));
                 },
                 //                Code::I64Rotr => (),
@@ -1493,6 +1648,7 @@ impl Runtime
                         Some(StackTypes::I64(v)) => v as u64,
                         _ => panic!("I64Rotr error"),
                     };
+                    writeln!(&mut wasfile,"{}. I64Rotr Shift: {} Value: {}", incount, shift, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(value.rotate_right(shift) as i64));
                 },
                                 //FL
@@ -1504,6 +1660,7 @@ impl Runtime
                         Some(StackTypes::F32(v)) => v,
                         _ => panic!("F32Abs error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Abs Val: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(value.abs()));
                 },
                 //                Code::F32Neg => (),
@@ -1513,6 +1670,7 @@ impl Runtime
                         Some(StackTypes::F32(v)) => v,
                         _ => panic!("F32Neg error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Neg Val: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(-value));
                 },
                 //                Code::F32Ceil => (),
@@ -1522,6 +1680,7 @@ impl Runtime
                         Some(StackTypes::F32(v)) => v,
                         _ => panic!("F32Ceil error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Ceil Val: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(value.ceil()));
                 },
                 //                Code::F32Floor => (),
@@ -1531,6 +1690,7 @@ impl Runtime
                         Some(StackTypes::F32(v)) => v,
                         _ => panic!("F32Floor error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Floor Val: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(value.floor()));
                 },
                 //                Code::F32Trunc => (),
@@ -1540,6 +1700,7 @@ impl Runtime
                         Some(StackTypes::F32(v)) => v,
                         _ => panic!("F32Trunc error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Trunc Val: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(value.trunc()));
                 },
                 //                Code::F32Nearest => (),
@@ -1549,6 +1710,7 @@ impl Runtime
                         Some(StackTypes::F32(v)) => v,
                         _ => panic!("F32Nearest error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Nearest Val: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(value.round()));
                 },
                 //                Code::F32Sqrt => (),
@@ -1558,6 +1720,7 @@ impl Runtime
                         Some(StackTypes::F32(v)) => v,
                         _ => panic!("F32Sqrt error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Sqrt Val: {}", incount, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(value.sqrt()));
                 },
                 //                Code::F32Add => (),
@@ -1572,6 +1735,7 @@ impl Runtime
                         Some(StackTypes::F32(val)) => val,
                         _ => panic!("F32Add error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Add Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(a+b));
                 },
                 //                Code::F32Sub => (),
@@ -1586,6 +1750,7 @@ impl Runtime
                         Some(StackTypes::F32(val)) => val,
                         _ => panic!("F32Sub error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Sub Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(a-b));
                 },
                 //                Code::F32Mul => (),
@@ -1600,6 +1765,7 @@ impl Runtime
                         Some(StackTypes::F32(val)) => val,
                         _ => panic!("F32Mul error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Mul Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(a*b));
                 },
                 //                Code::F32Div => (),
@@ -1614,6 +1780,7 @@ impl Runtime
                         Some(StackTypes::F32(val)) => val,
                         _ => panic!("F32Div error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Div Val1: {}/ Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(a/b));
                 },
                 //                Code::F32Min => (),
@@ -1628,6 +1795,7 @@ impl Runtime
                         Some(StackTypes::F32(val)) => val,
                         _ => panic!("F32Min error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Min Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(a.min(b)));
                 },
                 //                Code::F32Max => (),
@@ -1642,6 +1810,7 @@ impl Runtime
                         Some(StackTypes::F32(val)) => val,
                         _ => panic!("F32Max error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Max Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(a.max(b)));
                 },
                 //                Code::F32Copysign => (),
@@ -1654,6 +1823,7 @@ impl Runtime
                         Some(StackTypes::F32(v)) => v,
                         _ => panic!("F32Copysign error"),
                     };
+                    writeln!(&mut wasfile,"{}. F32Copysign Sign: {} Value: {}", incount, sign, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(sign.copysign(value)));
                 },
                                 //F64
@@ -1664,6 +1834,7 @@ impl Runtime
                         Some(StackTypes::F64(v)) => v,
                         _ => panic!("F64Abs error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Abs Value: {}", incount, v).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(v.abs()));
                 },
                 //                Code::F64Neg => (),
@@ -1673,6 +1844,7 @@ impl Runtime
                         Some(StackTypes::F64(v)) => v,
                         _ => panic!("F64Neg error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Neg Value: {}", incount, v).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(-v));
                 },
                 //                Code::F64Ceil => (),
@@ -1682,6 +1854,7 @@ impl Runtime
                         Some(StackTypes::F64(v)) => v,
                         _ => panic!("F64Ceil error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Ceil Value: {}", incount, v).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(v.ceil()));
                 },
                 //                Code::F64Floor => (),
@@ -1691,6 +1864,7 @@ impl Runtime
                         Some(StackTypes::F64(v)) => v,
                         _ => panic!("F64Floor error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Floor Value: {}", incount, v).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(v.floor()));
                 },
                 //                Code::F64Trunc => (),
@@ -1700,6 +1874,7 @@ impl Runtime
                         Some(StackTypes::F64(v)) => v,
                         _ => panic!("F64Trunc error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Trunc Value: {}", incount, v).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(v.trunc()));
                 },
                 //                Code::F64Nearest => (),
@@ -1709,6 +1884,7 @@ impl Runtime
                         Some(StackTypes::F64(v)) => v,
                         _ => panic!("F64Nearest error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Nearest Value: {}", incount, v).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(v.round()));
                 },
                 //                Code::F64Sqrt => (),
@@ -1718,6 +1894,7 @@ impl Runtime
                         Some(StackTypes::F64(v)) => v,
                         _ => panic!("F64Sqrt error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Sqrt Value: {}", incount, v).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(v.sqrt()));
                 },
                 //                Code::F64Add => (),
@@ -1732,6 +1909,7 @@ impl Runtime
                         Some(StackTypes::F64(val)) => val,
                         _ => panic!("F64Add error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Add Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(a+b));
                 },
                 //                Code::F64Sub => (),
@@ -1746,6 +1924,7 @@ impl Runtime
                         Some(StackTypes::F64(val)) => val,
                         _ => panic!("F64Sub error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Sub Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(a-b));
                 },
                 //                Code::F64Mul => (),
@@ -1760,6 +1939,7 @@ impl Runtime
                         Some(StackTypes::F64(val)) => val,
                         _ => panic!("F64Mul error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Mul Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(a*b));
                 },
                 //                Code::F64Div => (),
@@ -1774,6 +1954,7 @@ impl Runtime
                         Some(StackTypes::F64(val)) => val,
                         _ => panic!("F64Div error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Div Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(a/b));
                 },
                 //                Code::F64Min => (),
@@ -1788,6 +1969,7 @@ impl Runtime
                         Some(StackTypes::F64(val)) => val,
                         _ => panic!("F64Min error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Min Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(a.min(b)));
                 },
                 //                Code::F64Max => (),
@@ -1802,6 +1984,7 @@ impl Runtime
                         Some(StackTypes::F64(val)) => val,
                         _ => panic!("F64Max error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Max Val1: {} Val2: {}", incount, a, b).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(a.max(b)));
                 },
                 //                Code::F64Copysign => (),
@@ -1814,6 +1997,7 @@ impl Runtime
                         Some(StackTypes::F64(v)) => v,
                         _ => panic!("F64Copysign error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Copysign Sign: {} Value: {}", incount, sign, value).expect("File Write Error");
                     self.value_stack.push(StackTypes::F64(sign.copysign(value)));
                 },
                 //tools
@@ -1828,6 +2012,7 @@ impl Runtime
                         Some(StackTypes::F32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Ge Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 >= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1843,6 +2028,7 @@ impl Runtime
                         Some(StackTypes::F64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64eq Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 == val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1857,6 +2043,7 @@ impl Runtime
                         Some(StackTypes::F64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Ne Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 != val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1871,6 +2058,7 @@ impl Runtime
                         Some(StackTypes::F64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Lt Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 < val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1885,6 +2073,7 @@ impl Runtime
                         Some(StackTypes::F64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Gt Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 > val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1899,6 +2088,7 @@ impl Runtime
                         Some(StackTypes::F64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Le Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 <= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1913,6 +2103,7 @@ impl Runtime
                         Some(StackTypes::F64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    writeln!(&mut wasfile,"{}. F64Ge Val1: {} Val2: {}", incount, val1, val2).expect("File Write Error");
                     if val1 >= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
@@ -1924,6 +2115,7 @@ impl Runtime
                         Some(StackTypes::I64(val)) => val as i32,
                         _ => panic!("Invalid Stack Type I32WrapI64"),
                     };
+                    writeln!(&mut wasfile,"{}. I32WrapI64 Value: {}", incount, wrapped).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(wrapped));
                 },
                 Code::I32TruncF32S => 
@@ -1933,6 +2125,7 @@ impl Runtime
                         Some(StackTypes::F32(val)) => val as i32,
                         _ => panic!("Invalid Stack Type I32WrapF32S"),
                     };
+                    writeln!(&mut wasfile,"{}. I32TruncF32S Value: {}", incount, trunced).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(trunced))
                 },
                 Code::I32TruncF32U => 
@@ -1949,6 +2142,7 @@ impl Runtime
                         _ => panic!("Invalid Stack Type I32TruncF32U"),
                     };
                     let sender = trunced as i32;
+                    writeln!(&mut wasfile,"{}. I32TruncF32U Value: {}", incount, trunced).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(sender));
                 },
                 Code::I32TruncF64S => 
@@ -1958,6 +2152,7 @@ impl Runtime
                         Some(StackTypes::F64(val)) => val as i32,
                         _ => panic!("Stack type is not a F64 I32TruncF64S"),
                     };
+                    writeln!(&mut wasfile,"{}. I32TruncF64S Value: {}", incount, trunced).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(trunced));
                 },
                 Code::I32TruncF64U => 
@@ -1974,6 +2169,7 @@ impl Runtime
                         },
                         _ => panic!("Stack type is not a F64 I32TruncF64U"),
                     };
+                    writeln!(&mut wasfile,"{}. I32TruncF64U Value: {}", incount, trunced).expect("File Write Error");
                     self.value_stack.push(StackTypes::I32(trunced as i32));
                 },
                 Code::I64ExtendI32S => 
@@ -1983,6 +2179,7 @@ impl Runtime
                         Some(StackTypes::I32(val)) => val as i64,
                         _ => panic!("Stack type is not I32 I64extendI32S"),
                     };
+                    writeln!(&mut wasfile,"{}. I64ExtendI32S Value: {}", incount, extend).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(extend));
                 },  
                 Code::I64ExtendI32U => 
@@ -1999,6 +2196,7 @@ impl Runtime
                         },
                         _ => panic!("Stack type is not I32 I64ExtendI32U"),
                     };
+                    writeln!(&mut wasfile,"{}. I64ExtendI32U Value: {}", incount, extend).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(extend as i64));
                 },
                 Code::I64TruncF32S => 
@@ -2008,6 +2206,7 @@ impl Runtime
                         Some(StackTypes::F32(val)) => val as i64,
                         _ => panic!("Stack type is not F32 I64TruncF32S"),
                     };
+                    writeln!(&mut wasfile,"{}. I64TruncF32S Value: {}", incount, trunced).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(trunced));
                 },
                 Code::I64TruncF32U => 
@@ -2024,6 +2223,7 @@ impl Runtime
                         },
                         _ => panic!("Stack type is not F32 I64TruncF32U"),
                     };
+                    writeln!(&mut wasfile,"{}. I64TruncF32U Value: {}", incount, trunced).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(trunced as i64));
                 },
                 Code::I64TruncF64S => 
@@ -2033,6 +2233,7 @@ impl Runtime
                         Some(StackTypes::F64(val)) => val as i64,
                         _ => panic!("Stack type is not F64 I64TruncF64S"),
                     };
+                    writeln!(&mut wasfile,"{}. I64TruncF64S Value: {}", incount, trunced).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(trunced));
                 },
                 Code::I64TruncF64U => 
@@ -2049,6 +2250,7 @@ impl Runtime
                         },
                         _ => panic!("Stack type is not F64 I64TruncF64U"),
                     };
+                    writeln!(&mut wasfile,"{}. I64TruncF64U Value: {}", incount, trunced).expect("File Write Error");
                     self.value_stack.push(StackTypes::I64(trunced as i64));
                 },
                 Code::F32ConvertI32S => 
@@ -2058,6 +2260,7 @@ impl Runtime
                         Some(StackTypes::I32(val)) => val as f32,
                         _ => panic!("Stack type is not I32 F32ConvertI32S"),
                     };
+                    writeln!(&mut wasfile,"{}. F32ConvertI32S Value: {}", incount, converted).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(converted));
                 },
                 Code::F32ConvertI32U => 
@@ -2074,6 +2277,7 @@ impl Runtime
                         },
                         _=> panic!("Stack type not I32 F32ConvertI32U"),
                     };
+                    writeln!(&mut wasfile,"{}. F32ConvertI32U Value: {}", incount, converted).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(converted));
                 },
                 Code::F32ConvertI64S => 
@@ -2083,6 +2287,7 @@ impl Runtime
                         Some(StackTypes::I64(val)) => val as f32,
                         _ => panic!("Stack type not I64 F32ConvertI64S"),
                     };
+                    writeln!(&mut wasfile,"{}. F32ConvertI64S Value: {}", incount, converted).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(converted));
                 },
                 Code::F32ConvertI64U => 
@@ -2096,13 +2301,17 @@ impl Runtime
                         },
                         _ => panic!("Stack type not I64 F32ConvertI64U"),
                     };
+                    writeln!(&mut wasfile,"{}. F32ConvertI64U Value: {}", incount, converted).expect("File Write Error");
                     self.value_stack.push(StackTypes::F32(converted));
                 },
                 Code::F32DemoteF64 => 
                 {
                     match self.value_stack.pop()
                     {
-                        Some(StackTypes::F64(val)) => self.value_stack.push(StackTypes::F32(val as f32)),
+                        Some(StackTypes::F64(val)) => {
+                            writeln!(&mut wasfile,"{}. F32DemoteF64 Value: {}", incount, val).expect("File Write Error");
+                            self.value_stack.push(StackTypes::F32(val as f32));
+                        }
                         _ => panic!("Stack type not F64 F32DemoteF64"),
                     }
                 },
@@ -2110,7 +2319,10 @@ impl Runtime
                 {
                     match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(val)) => self.value_stack.push(StackTypes::F64(val as f64)),
+                        Some(StackTypes::I32(val)) => {
+                            writeln!(&mut wasfile,"{}. F64ConvertI32S Value: {}", incount, val).expect("File Write Error");
+                            self.value_stack.push(StackTypes::F64(val as f64));                        
+                        }
                         _ => panic!("Stack type not I32 F64ConvertI32"),
                     }
                 },
@@ -2121,6 +2333,7 @@ impl Runtime
                         Some(StackTypes::I32(val)) =>
                         {
                             if val < 0 {panic!("I32 value is less than 0 F64ConvertI32U");}
+                            writeln!(&mut wasfile,"{}. ConvertI32U Value: {}", incount, val).expect("File Write Error");
                             self.value_stack.push(StackTypes::F64(val as f64));
                         }
                         _ => panic!("Stack type not I32 F64ConvertI32U"),
@@ -2130,7 +2343,10 @@ impl Runtime
                 {
                     match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(val)) => self.value_stack.push(StackTypes::F64(val as f64)),
+                        Some(StackTypes::I64(val)) => {
+                            writeln!(&mut wasfile,"{}. F64ConvertI64S Value: {}", incount, val).expect("File Write Error");
+                            self.value_stack.push(StackTypes::F64(val as f64));
+                        }
                         _ => panic!("Stack type not I64 F64ConvertI64S"),
                     }
                 },
@@ -2141,6 +2357,7 @@ impl Runtime
                         Some(StackTypes::I64(val)) =>
                         {
                             if val < 0 {panic!("I64 value less than zero F64ConvertI64U");}
+                            writeln!(&mut wasfile,"{}. F64ConvertI64U Value: {}", incount, val).expect("File Write Error");
                             self.value_stack.push(StackTypes::F64(val as f64));
                         },
                         _ => panic!("Stack type not I64 F64ConvertI64U"),
@@ -2150,7 +2367,10 @@ impl Runtime
                 {
                     match self.value_stack.pop()
                     {
-                        Some(StackTypes::F32(val)) => self.value_stack.push(StackTypes::F64(val as f64)),
+                        Some(StackTypes::F32(val)) => {
+                            writeln!(&mut wasfile,"{}. F64PromoteF32 Value: {}", incount, val).expect("File Write Error");
+                            self.value_stack.push(StackTypes::F64(val as f64));
+                        }
                         _ => panic!("Stack type not I32 F64PromoteF32"),
                     }
                 },
@@ -2158,7 +2378,10 @@ impl Runtime
                 {
                     match self.value_stack.pop()
                     {
-                        Some(StackTypes::F64(val)) => self.value_stack.push(StackTypes::I64(f64::to_bits(val) as i64)),
+                        Some(StackTypes::F64(val)) => {
+                            writeln!(&mut wasfile,"{}. I64ReinterpretF64 Value: {}", incount, val).expect("File Write Error");
+                            self.value_stack.push(StackTypes::I64(f64::to_bits(val) as i64));
+                        }
                         _ => panic!("Stack type not F64 I64ReinterpretF64"),
                     }
                 },
@@ -2166,7 +2389,10 @@ impl Runtime
                 {
                     match self.value_stack.pop()
                     {
-                        Some(StackTypes::F32(val)) => self.value_stack.push(StackTypes::I32(val.to_bits() as i32)),
+                        Some(StackTypes::F32(val)) => {
+                            writeln!(&mut wasfile,"{}. I32ReinterpretF32 Value: {}", incount, val).expect("File Write Error");
+                            self.value_stack.push(StackTypes::I32(val.to_bits() as i32));
+                        }
                         _ => panic!("Stack type not F32 I32 ReinterpretF32"),
                     }
                 },
@@ -2174,7 +2400,10 @@ impl Runtime
                 {
                     match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(val)) => self.value_stack.push(StackTypes::F64(f64::from_bits(val as u64))),
+                        Some(StackTypes::I64(val)) => {
+                            writeln!(&mut wasfile,"{}. F64ReinterpretI64 Value: {}", incount, val).expect("File Write Error");
+                            self.value_stack.push(StackTypes::F64(f64::from_bits(val as u64)));
+                        }
                         _ => panic!("Stack type not I64 F64ReinterpretI64"),
                     }
                 },
@@ -2182,12 +2411,17 @@ impl Runtime
                 {
                     match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(val)) => self.value_stack.push(StackTypes::F32(f32::from_bits(val as u32))),
+                        Some(StackTypes::I32(val)) => {
+                            writeln!(&mut wasfile,"{}. F32ReinterpretI32 Value: {}", incount, val).expect("File Write Error");
+                            self.value_stack.push(StackTypes::F32(f32::from_bits(val as u32)));
+                        }
                         _ => panic!("Stack type not I32 F32ReinterpretI32"),
                     }
                 },
                 _ => panic!("Unsupported Type"),
             }
+            incount += 1;
         }
+        //wasfile.flush().expect("Cant flush log file");
     }
 }
