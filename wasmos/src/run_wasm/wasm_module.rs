@@ -5,7 +5,7 @@ pub struct Module
     pub typs: Vec<Types>,
     pub fnid: Vec<u32>,
     pub tabs: Vec<Tab>,
-    pub memy: Vec<(u32, Option<u32>)>,
+    pub memy: Vec<MemoIn>,
     pub glob: Vec<Global>,
     pub exps: Vec<Export>,
     pub strt: Option<u32>,
@@ -13,7 +13,7 @@ pub struct Module
     pub fcce: Vec<Function>,
     pub mmsg: Vec<MemSeg>,
     pub imports: u32,
-    pub memcount: u32
+    //pub memcount: u32
 }
 impl Module
 {
@@ -33,7 +33,7 @@ impl Module
             fcce: Vec::new(),
             mmsg: Vec::new(),
             imports: 0,
-            memcount: 0,
+            //memcount: 0,
 
         }
     }
@@ -61,16 +61,25 @@ pub fn decode_byte(byte: u8) -> Option<TypeBytes> //Decode byte to type
 #[derive(Clone)]
 pub struct Import
 {
-    pub mod_name: String,
-    pub imp_name: String,
-    pub ind: u32,
-    pub mem_min: u32,
-    pub mem_max: Option<u32>,
-    pub tab_min: u32,
-    pub tab_max: Option<u32>,
-    pub exp_type: ExpTyp,
-    pub ismut: bool,
-    pub byte_typs : TypeBytes,
+    pub modname: String,
+    pub impname: String,
+    pub imptyp: ExpTyp,
+    pub index: Option<u32>,
+    pub tab: Option<Tab>,
+    pub mem: Option<MemoIn>,
+    pub glob: Option<ShortGlobal>,
+}
+#[derive(Clone)]
+pub struct MemoIn{
+    pub flag: u8,
+    pub memmin: u32,
+    pub memmax: Option<u32>,
+}
+#[derive(Clone)]
+pub struct ShortGlobal
+{
+    pub typ: TypeBytes,
+    pub is_mut: bool,
 }
 #[derive(Clone)]
 pub struct Types
@@ -99,27 +108,28 @@ pub struct Global
 {
     pub typ: TypeBytes,
     pub ismut: bool,
-    pub code: Vec<Code>
+    pub code: Code,
 }
 #[derive(Clone)]
 pub struct Element
 {
-    pub flag: u32,
+    pub tabid: u32,
     pub elmtyp: Option<u8>, 
-    pub elmcode: Vec<Code>,
+    pub elmoff: Code,
     pub fvec: Vec<u32>,
 }
-#[derive(Clone)]
+/*#[derive(Clone)] for wasm 1 plus
 pub enum MemTyp //Could probably just store the flag instead looking back while working on element section
 {
     Waiting,
     Immediate,
-}
+}*/
 #[derive(Clone)]
 pub struct MemSeg
 {
-    pub memtyp: MemTyp,
-    pub code: Option<Code>,
+    //pub memtyp: MemTyp,
+    //pub code:  Vec<Code>,
+    pub code: Code,
     pub dvec: Vec<u8>,
 }
 #[derive(Clone)]
@@ -131,9 +141,12 @@ pub struct Function
 #[derive(Clone)]
 pub struct Tab
 {
-    pub typ: TypeBytes,
+    pub typ: u8,
+    pub flag: u8,
     pub tabmin: u32,
-    pub tabmax: Option<u32>
+    pub tabmax: Option<u32>,
+    //pub tabmin64: Option<i64>,
+    //pub tabmax64: Option<i64>
 }
 #[derive(Clone)]
 pub enum Code

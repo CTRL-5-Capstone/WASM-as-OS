@@ -18,14 +18,23 @@ pub struct StackCalls
     pub vars: Vec<StackTypes>,
 }
 #[derive(Clone)]
+pub struct GlobsGlobal
+{
+    typ: StackTypes, 
+    ismut: bool,
+}
+#[derive(Clone)]
 pub struct Runtime
 {
     pub module: Module,
     pub mem: Vec<u8>,
+    pub memmin: u32,
+    pub memmax: Option<u32>,
     pub call_stack: Vec<StackCalls>, 
     pub value_stack: Vec<StackTypes>,
     pub flow_stack: Vec<FlowCode>,
-    pub globs: Vec<StackTypes>,
+    pub globs: Vec<GlobsGlobal>,
+    pub functab: Vec<Option<u32>>,
 
 }
 #[derive(Clone)]
@@ -47,30 +56,71 @@ pub struct FlowCode
 impl Runtime
 {
     pub fn new(module: Module) -> Self
-    {
-        let to_mem = module.memy.first().map(|(min, _max)| *min).unwrap_or(1);
-        let mut bytes = to_mem as usize;
+    {   
+        //Imports 
+        //Will Add Soon
+        //Memory Allocation
+        let mut memmin: u32 = 0;
+        let mut memmax: Option<u32> = None;
+        let mut mimpbool = false;
+        for mut i in module.imps.clone()
+        {
+            if i.mem.is_some()
+            {
+                memmax = i.mem.as_mut().unwrap().memmax;
+                memmin = i.mem.unwrap().memmin;
+                mimpbool = true;
+                break;
+            }
+        }
+        if !mimpbool{
+            memmin = module.memy[0].memmin;
+            memmax = module.memy[0].memmax;
+        }
+        let mut bytes =  memmin as usize;
         bytes *= 65536;
-        let memvec = vec![0; bytes];
-        let mut globs: Vec<StackTypes> = Vec::new(); 
+        let mut memvec = vec![0; bytes];
+        //Loading mem
+        for mems in &module.mmsg
+        {
+            let off = match mems.code{
+                Code::I32Const(val) => val,
+                _ => panic!("Invalid offset type loading memory"),
+            } as usize;
+            assert!((off + mems.dvec.len() <= memvec.len()));
+            memvec[off..off + mems.dvec.len()].copy_from_slice(&mems.dvec);
+        }
+        let mut globs: Vec<GlobsGlobal> = Vec::new(); 
         for global in &module.glob 
         {
-            let mut gval = None;
-            for c in &global.code{
-                match c
-                {
-                    Code::I32Const(cons) => gval = Some(StackTypes::I32(*cons)),
-                    Code::I64Const(cons) => gval = Some(StackTypes::I64(*cons)),
-                    Code::F32Const(cons) => gval = Some(StackTypes::F32(*cons)),
-                    Code::F64Const(cons) => gval = Some(StackTypes::F64(*cons)),
-                    Code::End => break,
-                    _ => panic!("Invalid Global"),
-                }
-            }
-             globs.push(gval.expect("Error no Global Val new run"));
-        }
+            let mut gval: StackTypes = match global.code
+            {
+                Code::I32Const(cons) => StackTypes::I32(cons),
+                Code::I64Const(cons) => StackTypes::I64(cons),
+                Code::F32Const(cons) => StackTypes::F32(cons),
+                Code::F64Const(cons) =>  StackTypes::F64(cons),
+                _ => panic!("Invalid Global"),
+            };
 
-        Runtime { module, mem: memvec, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs,}
+            let ismut = global.ismut;
+            globs.push(GlobsGlobal{typ: gval, ismut});
+        }
+        let mut functab: Vec<Option<u32>> = vec![None; module.tabs[0].tabmin as usize];
+        for elm in &module.elms
+        {
+            let mut off = match elm.elmoff
+            {
+                Code::I32Const(val) => val,
+                _ => panic!("Invalid Constant Elements"),
+            } as usize;
+            assert!(off + elm.fvec.len() <= functab.len());
+            for byts in &elm.fvec
+            {
+                functab[off] = Some(*byts);
+                off +=1;
+            }
+        }
+        Runtime{module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs,}
     }
     pub fn run_prog(&mut self) -> Option<StackTypes>
     {
@@ -134,9 +184,9 @@ impl Runtime
                 //flow
                 Code::Unreachable => panic!("wasm module reached unreachable instruction"),
                 Code::Nop => (), //instruction is a placeholder in wasm
-                //Code::Block(typ) => self.flow_stack.push({FlowCode { flow_type: FlowType::Block, break_tar: , size: self.value_stack.len(), ret_typ: typ}}),
-                Code::Loop(typ) => self.flow_stack.push(FlowCode{ flow_type: FlowType::Loop, break_tar: call.loc - 1, size: self.value_stack.len(), ret_typ: typ,}),    
-//                Code::If(typ) => //log::info!("If: {}", typ),
+                Code::Block(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::Block, break_tar: call.code.len() - 1, size: self.value_stack.len(), ret_typ: typ}),
+                Code::Loop(typ) => self.flow_stack.push(FlowCode{ flow_type: FlowType::Loop, break_tar: call.code.len(), size: self.value_stack.len(), ret_typ: typ,}),    
+                //Code::If(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::If, break_tar: , size: (), ret_typ: () }),
 //                Code::Else => //log::info!("Else"),
                 Code::Br(us) => 
                 {
@@ -226,10 +276,10 @@ impl Runtime
                     self.call_stack.push(StackCalls{ fnid: ind as usize, code: fcode.to_vec(), loc: 0, vars});
                     continue 'run;
                 },
-                Code::CallIndirect(ind) => 
+                /*Code::CallIndirect(ind) => 
                 {
 
-                },
+                },*/
                 //Args
                 Code::Drop =>
                 {
@@ -270,14 +320,17 @@ impl Runtime
                 },
                 Code::GlobalGet(loc) =>
                 {
-                    let to_stack = self.globs.get(loc as usize).cloned().expect("Couldnt get val globget");
+                    let mut loc = loc as usize;
+                    assert!(loc <= self.globs.len());
+                    let to_stack = self.globs[loc as usize].typ.clone();
                     self.value_stack.push(to_stack);
                     //log::info!("Global Get: Index: {}, Value: {}", loc, to_stack);
                 },
                 Code::GlobalSet(loc) =>
                 {
                     let to_glob = self.value_stack.pop().expect("Stack empty globset");
-                    self.globs[loc as usize] = to_glob;
+                    assert!(self.globs[loc as usize].ismut);
+                    self.globs[loc as usize].typ = to_glob;
                     //log::info!("Global Set: Index: {}, Value: {}", loc, to_glob);
                 },
                 //Mem
@@ -289,7 +342,8 @@ impl Runtime
                         _ => panic!("Mem error"),
                     };
                     let offloc = off + memloc as u32;  
-                    let of = offloc as usize;              
+                    let of = offloc as usize;      
+                    assert!(of + 4 <= self.mem.len());        
                     let bytes = &self.mem[of..of + 4];
                     let to_stack = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
                     let val = StackTypes::I32(to_stack);
@@ -607,7 +661,11 @@ impl Runtime
                     };
                     assert!(memchange >= 0);
                     let curmem = (self.mem.len()/65536) as i32;
-                    let newmem = (curmem + memchange) * 65536;
+                    let newmem = ((curmem + memchange) * 65536) as u32;
+                    if let Some(val) = self.memmax
+                    {
+                        assert!(val > newmem);
+                    }
                     self.mem.resize(newmem as usize, 0);
 
                     self.value_stack.push(StackTypes::I32(curmem));
@@ -635,7 +693,7 @@ impl Runtime
                 Code::I32Eqz => {
                     let i_val = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(val)) => val as u32,
+                        Some(StackTypes::I32(val)) => val,
                         _ => panic!("Invalid type stack error"),
                     };
                     match i_val
@@ -648,12 +706,12 @@ impl Runtime
                 Code::I32Eq => {
                     let val2 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(v2)) => v2 as u32,
+                        Some(StackTypes::I32(v2)) => v2,
                         _ => panic!("Invalid type stack error"),
                     };
                     let val1 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(v1)) => v1 as u32,
+                        Some(StackTypes::I32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
                     if val1 == val2 {self.value_stack.push(StackTypes::I32(1));}
@@ -662,12 +720,12 @@ impl Runtime
                 Code::I32Ne => {
                     let val2 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(v2)) => v2 as u32,
+                        Some(StackTypes::I32(v2)) => v2,
                         _ => panic!("Invalid type stack error"),
                     };
                     let val1 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(v1)) => v1 as u32,
+                        Some(StackTypes::I32(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
                     if val1 != val2 {self.value_stack.push(StackTypes::I32(1));}
@@ -790,41 +848,13 @@ impl Runtime
                 Code::I64Eqz => {
                     let val = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v)) => v as u64,
+                        Some(StackTypes::I64(v)) => v,
                         _ => panic!("Invalid type stack error"),
                     };
                     if val == 0 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
                 Code::I64Eq => {
-                    let val2 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I64(v2)) => v2 as u64,
-                        _ => panic!("Invalid type stack error"),
-                    };
-                    let val1 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I64(v1)) => v1 as u64,
-                        _ => panic!("Invalid type stack error"),
-                    };
-                    if val1 == val2 {self.value_stack.push(StackTypes::I32(1));}
-                    else {self.value_stack.push(StackTypes::I32(0));}
-                },
-                Code::I64Ne => {
-                    let val2 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I64(v2)) => v2 as u64,
-                        _ => panic!("Invalid type stack error"),
-                    };
-                    let val1 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I64(v1)) => v1 as u64,
-                        _ => panic!("Invalid type stack error"),
-                    };
-                    if val1 != val2 {self.value_stack.push(StackTypes::I32(1));}
-                    else {self.value_stack.push(StackTypes::I32(0));}
-                },
-                Code::I64LtS => {
                     let val2 = match self.value_stack.pop()
                     {
                         Some(StackTypes::I64(v2)) => v2,
@@ -835,18 +865,46 @@ impl Runtime
                         Some(StackTypes::I64(v1)) => v1,
                         _ => panic!("Invalid type stack error"),
                     };
+                    if val1 == val2 {self.value_stack.push(StackTypes::I32(1));}
+                    else {self.value_stack.push(StackTypes::I32(0));}
+                },
+                Code::I64Ne => {
+                    let val2 = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(v2)) => v2,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(v1)) => v1,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    if val1 != val2 {self.value_stack.push(StackTypes::I32(1));}
+                    else {self.value_stack.push(StackTypes::I32(0));}
+                },
+                Code::I64LtS => {
+                    let val2 = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(v2)) => v2 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
+                    let val1 = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(v1)) => v1 as u32,
+                        _ => panic!("Invalid type stack error"),
+                    };
                     if val1 < val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
                 Code::I64LtU => {
                     let val2 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v2)) => v2 as u64,
+                        Some(StackTypes::I64(v2)) => v2 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
                     let val1 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v1)) => v1 as u64,
+                        Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
                     if val1 < val2 {self.value_stack.push(StackTypes::I32(1));}
@@ -869,12 +927,12 @@ impl Runtime
                 Code::I64GtU => {
                     let val2 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v2)) => v2 as u64,
+                        Some(StackTypes::I64(v2)) => v2 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
                     let val1 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v1)) => v1 as u64,
+                        Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
                     if val1 > val2 {self.value_stack.push(StackTypes::I32(1));}
@@ -897,12 +955,12 @@ impl Runtime
                 Code::I64LeU => {
                     let val2 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v2)) => v2 as u64,
+                        Some(StackTypes::I64(v2)) => v2 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
                     let val1 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v1)) => v1 as u64,
+                        Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
                     if val1 <= val2 {self.value_stack.push(StackTypes::I32(1));}
@@ -925,12 +983,12 @@ impl Runtime
                 Code::I64GeU => {
                     let val2 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v2)) => v2 as u64,
+                        Some(StackTypes::I64(v2)) => v2 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
                     let val1 = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I64(v1)) => v1 as u64,
+                        Some(StackTypes::I64(v1)) => v1 as u32,
                         _ => panic!("Invalid type stack error"),
                     };
                     if val1 >= val2 {self.value_stack.push(StackTypes::I32(1));}
@@ -1010,30 +1068,30 @@ impl Runtime
                    //Calcs
                 //I32
 //                Code::I32Clz => (),
-Code::I32Clz => {
+                Code::I32Clz => {
                     let val = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(v)) => v as u32,
+                        Some(StackTypes::I32(v)) => v,
                         _ => panic!("Invalid type stack error"),
                     };
                     let leading_zeros = val.leading_zeros();
                     self.value_stack.push(StackTypes::I32(leading_zeros as i32));
                 },
 //               Code::I32Ctz => (),
-Code::I32Ctz => {
+                Code::I32Ctz => {
                     let val = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(v)) => v as u32,
+                        Some(StackTypes::I32(v)) => v,
                         _ => panic!("Invalid type stack error"),
                     };
                     let trailing_zeros = val.trailing_zeros();
                     self.value_stack.push(StackTypes::I32(trailing_zeros as i32));
                 },  
 //                Code::I32Popcnt => (),
-Code::I32Popcnt => {
+                Code::I32Popcnt => {
                     let val = match self.value_stack.pop()
                     {
-                        Some(StackTypes::I32(v)) => v as u32,
+                        Some(StackTypes::I32(v)) => v,
                         _ => panic!("Invalid type stack error"),
                     };
                     let popcnt = val.count_ones();
@@ -1082,7 +1140,7 @@ Code::I32Popcnt => {
                     //log::info!("I32 Multiplication: {} * {}", y, x);
                 },
 //                Code::I32DivS => (),
-Code::I32DivS => {
+                    Code::I32DivS => {
                     let b = match self.value_stack.pop() {
                         Some(StackTypes::I32(v)) => v,
                         _ => panic! ("I32Divs error"),
@@ -1094,670 +1152,670 @@ Code::I32DivS => {
                    self.value_stack.push(StackTypes::I32(a / b));
                 },
 //                Code::I32DivU => (),
-Code::I32DivU => {
-    let b = match self.value_stack.pop() {
-    Some(StackTypes::I32(v)) => v as u32,
-    _ => panic! ("I32Divu error"),
-};
-let a = match self.value_stack.pop() {
-    Some(StackTypes::I32(v)) => v as u32,
-    _ => panic! ("I32Divu error"),
-};
-self.value_stack.push(StackTypes::I32((a / b) as i32));
-},
-//                Code::I32RemS => (),
-Code::I32RemS => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic! ("I32Rems error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic! ("I32Rems error"),
-    };
-   self.value_stack.push(StackTypes::I32(a % b));
-},
+                Code::I32DivU => {
+                    let b = match self.value_stack.pop() {
+                    Some(StackTypes::I32(v)) => v as u32,
+                    _ => panic! ("I32Divu error"),
+                };
+                let a = match self.value_stack.pop() {
+                    Some(StackTypes::I32(v)) => v as u32,
+                    _ => panic! ("I32Divu error"),
+                };
+                self.value_stack.push(StackTypes::I32((a / b) as i32));
+                },
+                //                Code::I32RemS => (),
+                Code::I32RemS => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic! ("I32Rems error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic! ("I32Rems error"),
+                    };
+                self.value_stack.push(StackTypes::I32(a % b));
+                },
 
-//                Code::I32RemU => (),
-Code::I32RemU => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic! ("I32Remu error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic! ("I32Remu error"),
-    };
-   self.value_stack.push(StackTypes::I32((a % b) as i32));
-},
-//                Code::I32And => (),
-Code::I32And => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32And error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32And error"),
-    };
-    self.value_stack.push(StackTypes::I32(a & b));
-},
-//                Code::I32Or => (),
-Code::I32Or => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Or error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Or error"),
-    };
-    self.value_stack.push(StackTypes::I32(a | b));
-},
-//                Code::I32Xor => (),
-Code::I32Xor => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Xor error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Xor error"),
-    };
-    self.value_stack.push(StackTypes::I32(a ^ b));
-},
-//                Code::I32Shl => (),
-Code::I32Shl => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32Shl error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Shl error"),
-    };
-    self.value_stack.push(StackTypes::I32(a << b));
-},
-//                Code::I32ShrS => (),
-Code::I32ShrS => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32ShrS error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32ShrS error"),
-    };
-    self.value_stack.push(StackTypes::I32(a >> b));
-},
-//                Code::I32ShrU => (),
-Code::I32ShrU => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32ShrU error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32ShrU error"),
-    };
-    self.value_stack.push(StackTypes::I32((a >> b) as i32));
-},
-//                Code::I32Rotl => (),
-Code::I32Rotl => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32Rotl error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Rotl error"),
-    };
-    self.value_stack.push(StackTypes::I32(value.rotate_left(shift) as i32));
-},
-//                Code::I32Rotr => (),
-Code::I32Rotr => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32Rotr error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Rotr error"),
-    };
-    self.value_stack.push(StackTypes::I32(value.rotate_right(shift) as i32));
-},
-                //I64
-//                Code::I64Clz => (),
-Code::I64Clz => {
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64Clz error"),
-    };
-    self.value_stack.push(StackTypes::I64(value.leading_zeros() as i64));
-},
-//                Code::I64Ctz => (),
-Code::I64Ctz => {
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64Ctz error"),
-    };
-    self.value_stack.push(StackTypes::I64(value.trailing_zeros() as i64));
-},
-//                Code::I64Popcnt => (),
-Code::I64Popcnt => {
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64Popcnt error"),
-    };
-    self.value_stack.push(StackTypes::I64(value.count_ones() as i64));
-},
-//                Code::I64Add => (),
-Code::I64Add => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Add error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Add error"),
-    };
-    self.value_stack.push(StackTypes::I64(a+b));
-},
-//                Code::I64Sub => (),
-Code::I64Sub => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Sub error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Sub error"),
-    };
-    self.value_stack.push(StackTypes::I64(a-b));
-},
-//                Code::I64Mul => (),
-Code::I64Mul => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Mul error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Mul error"),
-    };    
-    self.value_stack.push(StackTypes::I64(a*b));
-},
-//                Code::I64DivS => (),
-Code::I64DivS => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic! ("I64Divs error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic! ("I64Divs error"),
-    };
-   self.value_stack.push(StackTypes::I64(a / b));
-},
-//                Code::I64DivU => (),
-Code::I64DivU => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic! ("I64Divu error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic! ("I64Divu error"),
-    };
-    self.value_stack.push(StackTypes::I64((a / b) as i64));
-},
-//                Code::I64RemS => (),
-Code::I64RemS => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic! ("I64Rems error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic! ("I64Rems error"),
-    };
-   self.value_stack.push(StackTypes::I64(a % b));
-},
-//                Code::I64RemU => (),
-Code::I64RemU => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic! ("I64Remu error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic! ("I64Remu error"),
-    };
-   self.value_stack.push(StackTypes::I64((a % b) as i64));
-},
-//                Code::I64And => (),
-Code::I64And => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64And error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64And error"),
-    };
-    self.value_stack.push(StackTypes::I64(a & b));
-},
-//                Code::I64Or => (),
-Code::I64Or => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64Or error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64Or error"),
-    };
-    self.value_stack.push(StackTypes::I64(a | b));
-},
-//                Code::I64Xor => (),
-Code::I64Xor => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64Xor error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64Xor error"),
-    };
-    self.value_stack.push(StackTypes::I64(a ^ b));
-},
-//                Code::I64Shl => (),
-Code::I64Shl => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic!("I64Shl error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64Shl error"),
-    };
-    self.value_stack.push(StackTypes::I64(value << shift));
-},
-//                Code::I64ShrS => (),
-Code::I64ShrS => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic!("I64ShrS error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v,
-        _ => panic!("I64ShrS error"),
-    };
-    self.value_stack.push(StackTypes::I64(value >> shift));
-},
-//                Code::I64ShrU => (),
-Code::I64ShrU => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic!("I64ShrU error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic!("I64ShrU error"),
-    };
-    self.value_stack.push(StackTypes::I64((value >> shift) as i64));
-},
-//                Code::I64Rotl => (),
-Code::I64Rotl => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u32,
-        _ => panic!("I64Rotl error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic!("I64Rotl error"),
-    };
-    self.value_stack.push(StackTypes::I64(value.rotate_left(shift) as i64));
-},
-//                Code::I64Rotr => (),
-Code::I64Rotr => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u32,
-        _ => panic!("I64Rotr error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(v)) => v as u64,
-        _ => panic!("I64Rotr error"),
-    };
-    self.value_stack.push(StackTypes::I64(value.rotate_right(shift) as i64));
-},
-                //FL
-                //F32
-//                Code::F32Abs => (),
-Code::F32Abs => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Abs error"),
-    };
-    self.value_stack.push(StackTypes::F32(value.abs()));
-},
-//                Code::F32Neg => (),
-Code::F32Neg => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Neg error"),
-    };
-    self.value_stack.push(StackTypes::F32(-value));
-},
-//                Code::F32Ceil => (),
-Code::F32Ceil => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Ceil error"),
-    };
-    self.value_stack.push(StackTypes::F32(value.ceil()));
-},
-//                Code::F32Floor => (),
-Code::F32Floor => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Floor error"),
-    };
-    self.value_stack.push(StackTypes::F32(value.floor()));
-},
-//                Code::F32Trunc => (),
-Code::F32Trunc => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Trunc error"),
-    };
-    self.value_stack.push(StackTypes::F32(value.trunc()));
-},
-//                Code::F32Nearest => (),
-Code::F32Nearest => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Nearest error"),
-    };
-    self.value_stack.push(StackTypes::F32(value.round()));
-},
-//                Code::F32Sqrt => (),
-Code::F32Sqrt => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Sqrt error"),
-    };
-    self.value_stack.push(StackTypes::F32(value.sqrt()));
-},
-//                Code::F32Add => (),
-Code::F32Add => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Add error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Add error"),
-    };
-    self.value_stack.push(StackTypes::F32(a+b));
-},
-//                Code::F32Sub => (),
-Code::F32Sub => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Sub error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Sub error"),
-    };
-    self.value_stack.push(StackTypes::F32(a-b));
-},
-//                Code::F32Mul => (),
-Code::F32Mul => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Mul error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Mul error"),
-    };
-    self.value_stack.push(StackTypes::F32(a*b));
-},
-//                Code::F32Div => (),
-Code::F32Div => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Div error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Div error"),
-    };
-    self.value_stack.push(StackTypes::F32(a/b));
-},
-//                Code::F32Min => (),
-Code::F32Min => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Min error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Min error"),
-    };
-    self.value_stack.push(StackTypes::F32(a.min(b)));
-},
-//                Code::F32Max => (),
-Code::F32Max => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Max error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Max error"),
-    };
-    self.value_stack.push(StackTypes::F32(a.max(b)));
-},
-//                Code::F32Copysign => (),
-Code::F32Copysign => {
-    let sign = match self.value_stack.pop(){
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Copysign error"),
-    };
-    let value = match self.value_stack.pop(){
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Copysign error"),
-    };
-    self.value_stack.push(StackTypes::F32(sign.copysign(value)));
-},
-                //F64
-//                Code::F64Abs => (),
-Code::F64Abs => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Abs error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.abs()));
-},
-//                Code::F64Neg => (),
-Code::F64Neg => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Neg error"),
-    };
-    self.value_stack.push(StackTypes::F64(-v));
-},
-//                Code::F64Ceil => (),
-Code::F64Ceil => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Ceil error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.ceil()));
-},
-//                Code::F64Floor => (),
-Code::F64Floor => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Floor error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.floor()));
-},
-//                Code::F64Trunc => (),
-Code::F64Trunc => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Trunc error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.trunc()));
-},
-//                Code::F64Nearest => (),
-Code::F64Nearest => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Nearest error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.round()));
-},
-//                Code::F64Sqrt => (),
-Code::F64Sqrt => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Sqrt error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.sqrt()));
-},
-//                Code::F64Add => (),
-Code::F64Add => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Add error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Add error"),
-    };
-    self.value_stack.push(StackTypes::F64(a+b));
-},
-//                Code::F64Sub => (),
-Code::F64Sub => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Sub error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Sub error"),
-    };
-    self.value_stack.push(StackTypes::F64(a-b));
-},
-//                Code::F64Mul => (),
-Code::F64Mul => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Mul error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Mul error"),
-    };
-    self.value_stack.push(StackTypes::F64(a*b));
-},
-//                Code::F64Div => (),
-Code::F64Div => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Div error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Div error"),
-    };
-    self.value_stack.push(StackTypes::F64(a/b));
-},
-//                Code::F64Min => (),
-Code::F64Min => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Min error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Min error"),
-    };
-    self.value_stack.push(StackTypes::F64(a.min(b)));
-},
-//                Code::F64Max => (),
-Code::F64Max => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Max error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Max error"),
-    };
-    self.value_stack.push(StackTypes::F64(a.max(b)));
-},
-//                Code::F64Copysign => (),
-Code::F64Copysign => {
-    let sign = match self.value_stack.pop(){
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Copysign error"),
-    };
-    let value = match self.value_stack.pop(){
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Copysign error"),
-    };
-    self.value_stack.push(StackTypes::F64(sign.copysign(value)));
-},
+                //                Code::I32RemU => (),
+                Code::I32RemU => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v as u32,
+                        _ => panic! ("I32Remu error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v as u32,
+                        _ => panic! ("I32Remu error"),
+                    };
+                self.value_stack.push(StackTypes::I32((a % b) as i32));
+                },
+                //                Code::I32And => (),
+                Code::I32And => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32And error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32And error"),
+                    };
+                    self.value_stack.push(StackTypes::I32(a & b));
+                },
+                //                Code::I32Or => (),
+                Code::I32Or => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32Or error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32Or error"),
+                    };
+                    self.value_stack.push(StackTypes::I32(a | b));
+                },
+                //                Code::I32Xor => (),
+                Code::I32Xor => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32Xor error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32Xor error"),
+                    };
+                    self.value_stack.push(StackTypes::I32(a ^ b));
+                },
+                //                Code::I32Shl => (),
+                Code::I32Shl => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v as u32,
+                        _ => panic!("I32Shl error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32Shl error"),
+                    };
+                    self.value_stack.push(StackTypes::I32(a << b));
+                },
+                //                Code::I32ShrS => (),
+                Code::I32ShrS => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32ShrS error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32ShrS error"),
+                    };
+                    self.value_stack.push(StackTypes::I32(a >> b));
+                },
+                //                Code::I32ShrU => (),
+                Code::I32ShrU => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v as u32,
+                        _ => panic!("I32ShrU error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v as u32,
+                        _ => panic!("I32ShrU error"),
+                    };
+                    self.value_stack.push(StackTypes::I32((a >> b) as i32));
+                },
+                //                Code::I32Rotl => (),
+                Code::I32Rotl => {
+                    let shift = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v as u32,
+                        _ => panic!("I32Rotl error"),
+                    };
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32Rotl error"),
+                    };
+                    self.value_stack.push(StackTypes::I32(value.rotate_left(shift) as i32));
+                },
+                //                Code::I32Rotr => (),
+                Code::I32Rotr => {
+                    let shift = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v as u32,
+                        _ => panic!("I32Rotr error"),
+                    };
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I32(v)) => v,
+                        _ => panic!("I32Rotr error"),
+                    };
+                    self.value_stack.push(StackTypes::I32(value.rotate_right(shift) as i32));
+                },
+                                //I64
+                //                Code::I64Clz => (),
+                Code::I64Clz => {
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64Clz error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(value.leading_zeros() as i64));
+                },
+                //                Code::I64Ctz => (),
+                Code::I64Ctz => {
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64Ctz error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(value.trailing_zeros() as i64));
+                },
+                //                Code::I64Popcnt => (),
+                Code::I64Popcnt => {
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64Popcnt error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(value.count_ones() as i64));
+                },
+                //                Code::I64Add => (),
+                Code::I64Add => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val,
+                        _ => panic!("Add error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val,
+                        _ => panic!("Add error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(a+b));
+                },
+                //                Code::I64Sub => (),
+                Code::I64Sub => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val,
+                        _ => panic!("Sub error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val,
+                        _ => panic!("Sub error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(a-b));
+                },
+                //                Code::I64Mul => (),
+                Code::I64Mul => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val,
+                        _ => panic!("Mul error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::I64(val)) => val,
+                        _ => panic!("Mul error"),
+                    };    
+                    self.value_stack.push(StackTypes::I64(a*b));
+                },
+                //                Code::I64DivS => (),
+                Code::I64DivS => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic! ("I64Divs error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic! ("I64Divs error"),
+                    };
+                self.value_stack.push(StackTypes::I64(a / b));
+                },
+                //                Code::I64DivU => (),
+                Code::I64DivU => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic! ("I64Divu error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic! ("I64Divu error"),
+                    };
+                    self.value_stack.push(StackTypes::I64((a / b) as i64));
+                },
+                //                Code::I64RemS => (),
+                Code::I64RemS => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic! ("I64Rems error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic! ("I64Rems error"),
+                    };
+                self.value_stack.push(StackTypes::I64(a % b));
+                },
+                //                Code::I64RemU => (),
+                Code::I64RemU => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic! ("I64Remu error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic! ("I64Remu error"),
+                    };
+                self.value_stack.push(StackTypes::I64((a % b) as i64));
+                },
+                //                Code::I64And => (),
+                Code::I64And => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64And error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64And error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(a & b));
+                },
+                //                Code::I64Or => (),
+                Code::I64Or => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64Or error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64Or error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(a | b));
+                },
+                //                Code::I64Xor => (),
+                Code::I64Xor => {
+                    let b = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64Xor error"),
+                    };
+                    let a = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64Xor error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(a ^ b));
+                },
+                //                Code::I64Shl => (),
+                Code::I64Shl => {
+                    let shift = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic!("I64Shl error"),
+                    };
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64Shl error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(value << shift));
+                },
+                //                Code::I64ShrS => (),
+                Code::I64ShrS => {
+                    let shift = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic!("I64ShrS error"),
+                    };
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v,
+                        _ => panic!("I64ShrS error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(value >> shift));
+                },
+                //                Code::I64ShrU => (),
+                Code::I64ShrU => {
+                    let shift = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic!("I64ShrU error"),
+                    };
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic!("I64ShrU error"),
+                    };
+                    self.value_stack.push(StackTypes::I64((value >> shift) as i64));
+                },
+                //                Code::I64Rotl => (),
+                Code::I64Rotl => {
+                    let shift = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u32,
+                        _ => panic!("I64Rotl error"),
+                    };
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic!("I64Rotl error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(value.rotate_left(shift) as i64));
+                },
+                //                Code::I64Rotr => (),
+                Code::I64Rotr => {
+                    let shift = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u32,
+                        _ => panic!("I64Rotr error"),
+                    };
+                    let value = match self.value_stack.pop() {
+                        Some(StackTypes::I64(v)) => v as u64,
+                        _ => panic!("I64Rotr error"),
+                    };
+                    self.value_stack.push(StackTypes::I64(value.rotate_right(shift) as i64));
+                },
+                                //FL
+                                //F32
+                //                Code::F32Abs => (),
+                Code::F32Abs => {
+                    let value = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Abs error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(value.abs()));
+                },
+                //                Code::F32Neg => (),
+                Code::F32Neg => {
+                    let value = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Neg error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(-value));
+                },
+                //                Code::F32Ceil => (),
+                Code::F32Ceil => {
+                    let value = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Ceil error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(value.ceil()));
+                },
+                //                Code::F32Floor => (),
+                Code::F32Floor => {
+                    let value = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Floor error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(value.floor()));
+                },
+                //                Code::F32Trunc => (),
+                Code::F32Trunc => {
+                    let value = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Trunc error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(value.trunc()));
+                },
+                //                Code::F32Nearest => (),
+                Code::F32Nearest => {
+                    let value = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Nearest error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(value.round()));
+                },
+                //                Code::F32Sqrt => (),
+                Code::F32Sqrt => {
+                    let value = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Sqrt error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(value.sqrt()));
+                },
+                //                Code::F32Add => (),
+                Code::F32Add => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Add error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Add error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(a+b));
+                },
+                //                Code::F32Sub => (),
+                Code::F32Sub => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Sub error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Sub error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(a-b));
+                },
+                //                Code::F32Mul => (),
+                Code::F32Mul => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Mul error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Mul error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(a*b));
+                },
+                //                Code::F32Div => (),
+                Code::F32Div => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Div error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Div error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(a/b));
+                },
+                //                Code::F32Min => (),
+                Code::F32Min => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Min error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Min error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(a.min(b)));
+                },
+                //                Code::F32Max => (),
+                Code::F32Max => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Max error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F32(val)) => val,
+                        _ => panic!("F32Max error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(a.max(b)));
+                },
+                //                Code::F32Copysign => (),
+                Code::F32Copysign => {
+                    let sign = match self.value_stack.pop(){
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Copysign error"),
+                    };
+                    let value = match self.value_stack.pop(){
+                        Some(StackTypes::F32(v)) => v,
+                        _ => panic!("F32Copysign error"),
+                    };
+                    self.value_stack.push(StackTypes::F32(sign.copysign(value)));
+                },
+                                //F64
+                //                Code::F64Abs => (),
+                Code::F64Abs => {
+                    let v = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Abs error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(v.abs()));
+                },
+                //                Code::F64Neg => (),
+                Code::F64Neg => {
+                    let v = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Neg error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(-v));
+                },
+                //                Code::F64Ceil => (),
+                Code::F64Ceil => {
+                    let v = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Ceil error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(v.ceil()));
+                },
+                //                Code::F64Floor => (),
+                Code::F64Floor => {
+                    let v = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Floor error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(v.floor()));
+                },
+                //                Code::F64Trunc => (),
+                Code::F64Trunc => {
+                    let v = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Trunc error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(v.trunc()));
+                },
+                //                Code::F64Nearest => (),
+                Code::F64Nearest => {
+                    let v = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Nearest error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(v.round()));
+                },
+                //                Code::F64Sqrt => (),
+                Code::F64Sqrt => {
+                    let v = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Sqrt error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(v.sqrt()));
+                },
+                //                Code::F64Add => (),
+                Code::F64Add => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Add error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Add error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(a+b));
+                },
+                //                Code::F64Sub => (),
+                Code::F64Sub => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Sub error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Sub error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(a-b));
+                },
+                //                Code::F64Mul => (),
+                Code::F64Mul => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Mul error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Mul error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(a*b));
+                },
+                //                Code::F64Div => (),
+                Code::F64Div => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Div error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Div error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(a/b));
+                },
+                //                Code::F64Min => (),
+                Code::F64Min => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Min error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Min error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(a.min(b)));
+                },
+                //                Code::F64Max => (),
+                Code::F64Max => {
+                    let b = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Max error"),
+                    };
+                    let a = match self.value_stack.pop()
+                    {
+                        Some(StackTypes::F64(val)) => val,
+                        _ => panic!("F64Max error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(a.max(b)));
+                },
+                //                Code::F64Copysign => (),
+                Code::F64Copysign => {
+                    let sign = match self.value_stack.pop(){
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Copysign error"),
+                    };
+                    let value = match self.value_stack.pop(){
+                        Some(StackTypes::F64(v)) => v,
+                        _ => panic!("F64Copysign error"),
+                    };
+                    self.value_stack.push(StackTypes::F64(sign.copysign(value)));
+                },
                 //tools
                 Code::F32Ge => {
                     let val2 = match self.value_stack.pop()
@@ -1858,761 +1916,6 @@ Code::F64Copysign => {
                     if val1 >= val2 {self.value_stack.push(StackTypes::I32(1));}
                     else {self.value_stack.push(StackTypes::I32(0));}
                 },
-                //Calcs
-                //I32
-//                Code::I32Clz => (),
-//               Code::I32Ctz => (),
-//                Code::I32Popcnt => (),
-                Code::I32Add => {
-                    let val2 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val,
-                        _ => panic!("Add error"),
-                    };
-                    let val1 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val,
-                        _ => panic!("Add error"),
-                    };
-                    self.value_stack.push(StackTypes::I32(val1+val2));
-                    //log::info!("I32 Add: {} + {}", y, x);
-                },
-                Code::I32Sub => {
-                    let val2 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val,
-                        _ => panic!("Sub error"),
-                    };
-                    let val1 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val,
-                        _ => panic!("Sub error"),
-                    };
-                    self.value_stack.push(StackTypes::I32(val1-val2));
-                    //log::info!("I32 Subtract: {} - {}", y, x);
-                },
-                Code::I32Mul => {
-                    let val2 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val,
-                        _ => panic!("Mul error"),
-                    };
-                    let val1 = match self.value_stack.pop()
-                    {
-                        Some(StackTypes::I32(val)) => val,
-                        _ => panic!("Mul error"),
-                    };    
-                    self.value_stack.push(StackTypes::I32(val1*val2));
-                    //log::info!("I32 Multiplication: {} * {}", y, x);
-                },
-//                Code::I32DivS => (),
-Code::I32DivS => {
-    let val2 = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(val)) => val,
-        _ => panic!("Div error"),
-    };
-    let val1 = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(val)) => val,
-        _ => panic!("Div error"),
-    };
-    self.value_stack.push(StackTypes::I32(val1/val2));
-},
-//                Code::I32DivU => (),
-Code::I32DivU => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(val)) => val as u32,
-        _ => panic!("Div error"),
-    };
- let a = match self.value_stack.pop(){
-        Some(StackTypes::I32(val)) => val as u32,
-        _ => panic!("Div error"),
-     };
-    self.value_stack.push(StackTypes::I32((a / b) as i32));
- },
-//                Code::I32RemS => (),
-Code::I32RemS => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(val)) => val,
-        _ => panic!("I32RemS error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(val)) => val,
-        _ => panic!("I32RemS error"),
-    };
-   self.value_stack.push(StackTypes::I32(a % b));
-},
-//                Code::I32RemU => (),
-Code::I32RemU => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(val)) => val as u32,
-        _ => panic!("I32RemU error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(val)) => val as u32,
-        _ => panic!("I32RemU error"),
-    };
-   self.value_stack.push(StackTypes::I32((a % b) as i32));
-},
-//                Code::I32And => (),
-Code::I32And => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32And error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32And error"),
-    };
-    self.value_stack.push(StackTypes::I32(a & b));
-},
-//                Code::I32Or => (),
-Code::I32Or => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Or error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Or error"),
-    };
-    self.value_stack.push(StackTypes::I32(a | b));
-},
-//                Code::I32Xor => (),
-Code::I32Xor => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Xor error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Xor error"),
-    };
-    self.value_stack.push(StackTypes::I32(a ^ b));
-},
-//                Code::I32Shl => (),
-Code::I32Shl => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Shl error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Shl error"),
-    };
-    self.value_stack.push(StackTypes::I32(a << b));
-},
-//                Code::I32ShrS => (),
-Code::I32ShrS => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32ShrS error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32ShrS error"),
-    };
-    self.value_stack.push(StackTypes::I32(a >> b));
-},
-//                Code::I32ShrU => (),
-Code::I32ShrU => {
-    let b = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32ShrU error"),
-    };
-    let a = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32ShrU error"),
-    };
-    self.value_stack.push(StackTypes::I32((a >> b) as i32));
-},
-//                Code::I32Rotl => (),
-Code::I32Rotl => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32Rotl error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Rotl error"),
-    };
-    self.value_stack.push(StackTypes::I32(value.rotate_left(shift) as i32));
-},
-//                Code::I32Rotr => (),
-Code::I32Rotr => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v as u32,
-        _ => panic!("I32Rotr error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I32(v)) => v,
-        _ => panic!("I32Rotr error"),
-    };
-    self.value_stack.push(StackTypes::I32(value.rotate_right(shift) as i32));
-},
-
-                //I64
-//                Code::I64Clz => (),
-Code::I64Clz => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("I64Clz error"),
-    };
-    self.value_stack.push(StackTypes::I64(v.leading_zeros() as i64));
-},
-//                Code::I64Ctz => (),
-Code::I64Ctz => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("I64Ctz error"),
-    };
-    self.value_stack.push(StackTypes::I64(v.trailing_zeros() as i64));
-},
-//                Code::I64Popcnt => (),
-Code::I64Popcnt => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("I64Popcnt error"),
-    };
-    self.value_stack.push(StackTypes::I64(v.count_ones() as i64));
-},
-//                Code::I64Add => (),
-Code::I64Add => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Add error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Add error"),
-    };
-    self.value_stack.push(StackTypes::I64(a+b));
-},
-//                Code::I64Sub => (),
-Code::I64Sub => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Sub error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Sub error"),
-    };
-    self.value_stack.push(StackTypes::I64(a-b));
-},
-//                Code::I64Mul => (),
-Code::I64Mul => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Mul error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Mul error"),
-    };    
-    self.value_stack.push(StackTypes::I64(a*b));
-},
-//                Code::I64DivS => (),
-Code::I64DivS => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Div error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("Div error"),
-    };
-    self.value_stack.push(StackTypes::I64(a/b));
-},
-//                Code::I64DivU => (),
-Code::I64DivU => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val as u64,
-        _ => panic!("Div error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val as u64,
-        _ => panic!("Div error"),
-    };
-    self.value_stack.push(StackTypes::I64((a / b) as i64));
-},
-//                Code::I64RemS => (),
-Code::I64RemS => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("I64RemS error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val,
-        _ => panic!("I64RemS error"),
-    };
-   self.value_stack.push(StackTypes::I64(a % b));
-},
-//                Code::I64RemU => (),
-Code::I64RemU => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val as u64,
-        _ => panic!("I64RemU error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(val)) => val as u64,
-        _ => panic!("I64RemU error"),
-    };
-   self.value_stack.push(StackTypes::I64((a % b) as i64));
-}, 
-//                Code::I64And => (),
-Code::I64And => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(x)) => x,
-        _ => panic!("I64And error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(x)) => x,
-        _ => panic!("I64And error"),
-    };
-    self.value_stack.push(StackTypes::I64(a & b));
-},
-//                Code::I64Or => (),
-Code::I64Or => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(x)) => x,
-        _ => panic!("I64Or error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(x)) => x,
-        _ => panic!("I64Or error"),
-    };
-    self.value_stack.push(StackTypes::I64(a | b));
-},
-//                Code::I64Xor => (),
-Code::I64Xor => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(x)) => x,
-        _ => panic!("I64Xor error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::I64(x)) => x,
-        _ => panic!("I64Xor error"),
-    };
-    self.value_stack.push(StackTypes::I64(a ^ b));
-},
-//                Code::I64Shl => (),
-Code::I64Shl => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x as u64,
-        _ => panic!("I64Shl error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x,
-        _ => panic!("I64Shl error"),
-    };
-    self.value_stack.push(StackTypes::I64(value << shift));
-},
-//                Code::I64ShrS => (),
-Code::I64ShrS => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x as u32,
-        _ => panic!("I64ShrS error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x,
-        _ => panic!("I64ShrS error"),
-    };
-    self.value_stack.push(StackTypes::I64(value >> shift));
-},
-//                Code::I64ShrU => (),
-Code::I64ShrU => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x as u32,
-        _ => panic!("I64ShrU error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x as u64,
-        _ => panic!("I64ShrU error"),
-    };
-    self.value_stack.push(StackTypes::I64((value >> shift) as i64));
-},
-//                Code::I64Rotl => (),
-Code::I64Rotl => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x as u32,
-        _ => panic!("I64Rotl error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x as u64,
-        _ => panic!("I64Rotl error"),
-    };
-    self.value_stack.push(StackTypes::I64(value.rotate_left(shift) as i64));
-},
-//                Code::I64Rotr => (),
-Code::I64Rotr => {
-    let shift = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x as u32,
-        _ => panic!("I64Rotr error"),
-    };
-    let value = match self.value_stack.pop() {
-        Some(StackTypes::I64(x)) => x as u64,
-        _ => panic!("I64Rotr error"),
-    };
-    self.value_stack.push(StackTypes::I64(value.rotate_right(shift) as i64));
-},
-                //FL
-                //F32
-//                Code::F32Abs => (),
-Code::F32Abs => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Abs error"),
-    };
-    self.value_stack.push(StackTypes::F32(value.abs()));
-},
-
-//                Code::F32Neg => (),
-Code::F32Neg => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Neg error"),
-    };
-    self.value_stack.push(StackTypes::F32(-v));
-},
-//                Code::F32Ceil => (),
-Code::F32Ceil => {
-    let value = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Ceil error"),
-    };
-    self.value_stack.push(StackTypes::F32(value.ceil()));
-},
-//                Code::F32Floor => (),
-Code::F32Floor => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Floor error"),
-    };
-    self.value_stack.push(StackTypes::F32(v.floor()));
-},
-//                Code::F32Trunc => (),
-Code::F32Trunc => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Trunc error"),
-    };
-    self.value_stack.push(StackTypes::F32(v.trunc()));
-},
-//                Code::F32Nearest => (),
-Code::F32Nearest => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Nearest error"),
-    };
-    self.value_stack.push(StackTypes::F32(v.round()));
-},
-//                Code::F32Sqrt => (),
-Code::F32Sqrt => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Sqrt error"),
-    };
-    self.value_stack.push(StackTypes::F32(v.sqrt()));
-},
-//                Code::F32Add => (),
-Code::F32Add => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Add error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Add error"),
-    };
-    self.value_stack.push(StackTypes::F32(a+b));
-},
-//                Code::F32Sub => (),
-Code::F32Sub => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Sub error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Sub error"),
-    };
-    self.value_stack.push(StackTypes::F32(a-b));
-},
-//                Code::F32Mul => (),
-Code::F32Mul => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Mul error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Mul error"),
-    };
-    self.value_stack.push(StackTypes::F32(a*b));
-},
-//                Code::F32Div => (),
-Code::F32Div => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Div error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Div error"),
-    };
-    self.value_stack.push(StackTypes::F32(a/b));
-},
-//                Code::F32Min => (),
-Code::F32Min => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Min error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(val)) => val,
-        _ => panic!("F32Min error"),
-    };
-    self.value_stack.push(StackTypes::F32(a.min(b)));
-},
-//                Code::F32Max => (),
-Code::F32Max => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(x)) => x,
-        _ => panic!("F32Max error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F32(x)) => x,
-        _ => panic!("F32Max error"),
-    };
-    self.value_stack.push(StackTypes::F32(a.max(b)));
-},
-//                Code::F32Copysign => (),
-Code::F32Copysign => {
-    let sign = match self.value_stack.pop(){
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Copysign error"),
-    };
-    let value = match self.value_stack.pop(){
-        Some(StackTypes::F32(v)) => v,
-        _ => panic!("F32Copysign error"),
-    };
-    self.value_stack.push(StackTypes::F32(sign.copysign(value)));
-},
-                //F64
-//                Code::F64Abs => (),
-Code::F64Abs => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Abs error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.abs()));
-},
-//                Code::F64Neg => (),
-Code::F64Neg => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(x)) => x,
-        _ => panic!("F64Neg error"),
-    };
-    self.value_stack.push(StackTypes::F64(-v));
-},
-//                Code::F64Ceil => (),
-Code::F64Ceil => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(x)) => x,
-        _ => panic!("F64Ceil error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.ceil()));
-},
-//                Code::F64Floor => (),
-Code::F64Floor => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(x)) => x,
-        _ => panic!("F64Floor error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.floor()));
-},
-//                Code::F64Trunc => (),
-Code::F64Trunc => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(x)) => x,
-        _ => panic!("F64Trunc error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.trunc()));
-},
-//                Code::F64Nearest => (),
-Code::F64Nearest => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(x)) => x,
-        _ => panic!("F64Nearest error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.round()));
-},
-//                Code::F64Sqrt => (),
-Code::F64Sqrt => {
-    let v = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(x)) => x,
-        _ => panic!("F64Sqrt error"),
-    };
-    self.value_stack.push(StackTypes::F64(v.sqrt()));
-},
-//                Code::F64Add => (),
-Code::F64Add => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Add error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Add error"),
-    };
-    self.value_stack.push(StackTypes::F64(a+b));
-},
-//                Code::F64Sub => (),
-Code::F64Sub => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Sub error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Sub error"),
-    };
-    self.value_stack.push(StackTypes::F64(a-b));
-},
-//                Code::F64Mul => (),
-Code::F64Mul => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Mul error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Mul error"),
-    };
-    self.value_stack.push(StackTypes::F64(a*b));
-},
-//                Code::F64Div => (),
-Code::F64Div => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Div error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Div error"),
-    };
-    self.value_stack.push(StackTypes::F64(a/b));
-},
-//                Code::F64Min => (),
-Code::F64Min => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Min error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(val)) => val,
-        _ => panic!("F64Min error"),
-    };
-    self.value_stack.push(StackTypes::F64(a.min(b)));
-},  
-//                Code::F64Max => (),
-Code::F64Max => {
-    let b = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(x)) => x,
-        _ => panic!("F64Max error"),
-    };
-    let a = match self.value_stack.pop()
-    {
-        Some(StackTypes::F64(x)) => x,
-        _ => panic!("F64Max error"),
-    };
-    self.value_stack.push(StackTypes::F64(a.max(b)));
-},
-//                Code::F64Copysign => (),
-Code::F64Copysign => {
-    let sign = match self.value_stack.pop(){
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Copysign error"),
-    };
-    let value = match self.value_stack.pop(){
-        Some(StackTypes::F64(v)) => v,
-        _ => panic!("F64Copysign error"),
-    };
-    self.value_stack.push(StackTypes::F64(sign.copysign(value)));
-},
                 //tools
                 Code::I32WrapI64 => 
                 {
@@ -2887,5 +2190,4 @@ Code::F64Copysign => {
             }
         }
     }
-
 }
