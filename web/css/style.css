@@ -8,7 +8,7 @@
 
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
     min-height: 100vh;
     color: #333;
     overflow-x: hidden;
@@ -25,13 +25,13 @@ body {
     position: sticky;
     top: 0;
     z-index: 1000;
-    border-bottom: 1px solid rgba(102, 126, 234, 0.1);
+    border-bottom: 1px solid rgba(13, 148, 136, 0.1);
 }
 
 .nav-brand {
     font-size: 1.75rem;
     font-weight: 800;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -55,15 +55,15 @@ body {
 }
 
 .nav-menu a:hover {
-    color: #667eea;
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+    color: #0d9488;
+    background: linear-gradient(135deg, rgba(13, 148, 136, 0.1), rgba(20, 184, 166, 0.1));
     transform: translateY(-2px);
 }
 
 .nav-menu a.active {
     color: white;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    box-shadow: 0 4px 15px rgba(13, 148, 136, 0.4);
 }
 
 .container {
@@ -104,7 +104,7 @@ h2 {
     box-shadow: 0 10px 40px rgba(0,0,0,0.08);
     text-align: center;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(13, 148, 136, 0.1);
     position: relative;
     overflow: hidden;
 }
@@ -116,7 +116,7 @@ h2 {
     left: 0;
     right: 0;
     height: 4px;
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(90deg, #0d9488 0%, #14b8a6 100%);
     transform: scaleX(0);
     transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -127,7 +127,7 @@ h2 {
 
 .stat-card:hover {
     transform: translateY(-8px);
-    box-shadow: 0 20px 60px rgba(102, 126, 234, 0.2);
+    box-shadow: 0 20px 60px rgba(13, 148, 136, 0.2);
 }
 
 .stat-card h3 {
@@ -142,7 +142,7 @@ h2 {
 .stat-value {
     font-size: 2.5rem;
     font-weight: 800;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -155,7 +155,7 @@ h2 {
     border-radius: 24px;
     margin-bottom: 2.5rem;
     box-shadow: 0 10px 40px rgba(0,0,0,0.08);
-    border: 1px solid rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(13, 148, 136, 0.1);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -167,7 +167,7 @@ h2 {
     background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
     padding: 1.5rem;
     border-radius: 16px;
-    border-left: 4px solid #667eea;
+    border-left: 4px solid #0d9488;
     max-height: 400px;
     overflow-y: auto;
     box-shadow: inset 0 2px 8px rgba(0,0,0,0.04);
@@ -196,22 +196,22 @@ h2 {
 
 .form input:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+    border-color: #0d9488;
+    box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.1);
 }
 
 .form button {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
     color: white;
     border: none;
     cursor: pointer;
     font-weight: 600;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    box-shadow: 0 4px 15px rgba(13, 148, 136, 0.3);
 }
 
 .form button:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 8px 25px rgba(13, 148, 136, 0.4);
 }
 
 .form button:active {
@@ -219,7 +219,7 @@ h2 {
 }
 
 .btn-refresh {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
     color: white;
     padding: 1rem 2rem;
     border: none;
@@ -228,13 +228,13 @@ h2 {
     margin-bottom: 1.5rem;
     font-weight: 600;
     font-family: 'Inter', sans-serif;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    box-shadow: 0 4px 15px rgba(13, 148, 136, 0.3);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-refresh:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 8px 25px rgba(13, 148, 136, 0.4);
 }
 
 .tasks-container {
@@ -247,7 +247,7 @@ h2 {
     background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
     padding: 2rem;
     border-radius: 20px;
-    border-left: 5px solid #667eea;
+    border-left: 5px solid #0d9488;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -257,7 +257,7 @@ h2 {
 
 .task-card:hover {
     transform: translateX(8px);
-    box-shadow: 0 8px 30px rgba(102, 126, 234, 0.15);
+    box-shadow: 0 8px 30px rgba(13, 148, 136, 0.15);
 }
 
 .task-info h4 {
@@ -347,9 +347,9 @@ h2 {
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #667eea, #764ba2);
+    background: linear-gradient(90deg, #0d9488, #14b8a6);
     transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
+    box-shadow: 0 0 10px rgba(13, 148, 136, 0.5);
 }
 
 .status-grid {
@@ -367,7 +367,7 @@ h2 {
 }
 
 .log-entry:hover {
-    background: rgba(102, 126, 234, 0.05);
+    background: rgba(13, 148, 136, 0.05);
 }
 
 .log-entry:last-child {
@@ -427,12 +427,12 @@ h2 {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, #0d9488, #14b8a6);
     border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(135deg, #5568d3, #6a3f8f);
+    background: linear-gradient(135deg, #0a766c, #0f9e92);
 }
 
 @media (max-width: 768px) {

@@ -1,58 +1,86 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Execute - WASM-OS</title>
-    <link rel="stylesheet" href="../css/style.css">
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 24 24' stroke='%23ffffff' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z'/%3E%3C/svg%3E">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        border: "hsl(220 15% 18%)",
+                        background: "hsl(220 20% 7%)",
+                        foreground: "hsl(210 40% 98%)",
+                        primary: { DEFAULT: "hsl(173 80% 40%)", foreground: "hsl(173 80% 98%)" },
+                        secondary: { DEFAULT: "hsl(220 15% 14%)", foreground: "hsl(210 40% 98%)" },
+                        muted: { DEFAULT: "hsl(220 15% 14%)", foreground: "hsl(220 10% 55%)" },
+                        accent: { DEFAULT: "hsl(173 50% 15%)", foreground: "hsl(210 40% 98%)" },
+                        card: { DEFAULT: "hsl(220 18% 10%)", foreground: "hsl(210 40% 98%)" },
+                    }
+                }
+            }
+        }
+    </script>
 </head>
-<body>
-    <nav class="navbar">
-        <div class="nav-brand">
-            <span class="icon icon-brand icon-cpu"></span>
-            WASM-OS
+
+<body class="bg-background text-foreground min-h-screen flex flex-col">
+    <nav class="bg-card border-b border-border sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <div class="text-primary" id="logo-icon"></div>
+                    <div class="text-2xl font-bold text-primary">WASM-OS</div>
+                </div>
+                <div class="flex gap-2">
+                    <a href="../index.html"
+                        class="flex items-center gap-2 px-4 py-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
+                        <span id="nav-dashboard-icon"></span> Dashboard
+                    </a>
+                    <a href="tasks.html"
+                        class="flex items-center gap-2 px-4 py-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
+                        <span id="nav-tasks-icon"></span> Tasks
+                    </a>
+                    <a href="execute.html"
+                        class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium">
+                        <span id="nav-execute-icon"></span> Execute
+                    </a>
+                    <a href="inspect.html"
+                        class="flex items-center gap-2 px-4 py-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
+                        <span id="nav-inspect-icon"></span> Inspect
+                    </a>
+                    <a href="monitor.html"
+                        class="flex items-center gap-2 px-4 py-2 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
+                        <span id="nav-monitor-icon"></span> Monitor
+                    </a>
+                </div>
+            </div>
         </div>
-        <ul class="nav-menu">
-            <li><a href="../index.html">
-                <span class="icon icon-dashboard"></span>Dashboard
-            </a></li>
-            <li><a href="tasks.html">
-                <span class="icon icon-tasks"></span>Tasks
-            </a></li>
-            <li><a href="execute.html" class="active">
-                <span class="icon icon-execute"></span>Execute
-            </a></li>
-            <li><a href="inspect.html">
-                <span class="icon icon-inspect"></span>Inspect
-            </a></li>
-            <li><a href="monitor.html">
-                <span class="icon icon-monitor"></span>Monitor
-            </a></li>
-        </ul>
     </nav>
 
-    <div class="container">
-        <h1>Execute WASM Modules</h1>
-        
-        <div class="section">
-            <h2>
-                <span class="icon icon-upload"></span>
-                Upload WASM File
+    <div class="max-w-7xl mx-auto px-6 py-8 flex-1 w-full">
+        <h1 class="text-4xl font-bold mb-8">Execute WASM Modules</h1>
+
+        <div class="bg-card rounded-xl border border-border p-6 mb-6 shadow-sm">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                <span id="upload-icon"></span> Upload WASM File
             </h2>
-            <div class="form">
-                <input type="file" id="wasmFile" accept=".wasm" placeholder="Select WASM file">
-                <button id="uploadBtn">
-                    <span class="icon icon-upload"></span>
+            <div class="flex gap-4 flex-wrap">
+                <input type="file" id="wasmFile" accept=".wasm" placeholder="Select WASM file"
+                    class="flex-1 px-4 py-2 bg-secondary border border-border rounded-lg text-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary file:text-primary-foreground file:cursor-pointer">
+                <button id="uploadBtn"
+                    class="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center gap-2">
                     Upload WASM
                 </button>
             </div>
-            <div class="info-box" style="margin-top: 16px;">
-                <p><strong>
-                    <span class="icon icon-security"></span>
-                    Supported Features:
-                </strong></p>
-                <ul style="margin-left: 16px; margin-top: 8px;">
+            <div class="mt-4 p-4 bg-secondary rounded-lg border-l-4 border-teal-500">
+                <p class="font-semibold mb-2 flex items-center gap-2">
+                    <span id="features-icon"></span> Supported Features:
+                </p>
+                <ul class="ml-4 space-y-1 text-muted-foreground text-sm list-disc">
                     <li>Custom ABI with syscalls: log, read_sensor, send_alert</li>
                     <li>Memory isolation and bounds checking</li>
                     <li>Resource limits: 1M instructions, 1K syscalls, 1MB memory</li>
@@ -61,20 +89,37 @@
             </div>
         </div>
 
-        <div class="section">
-            <h2>
-                <span class="icon icon-settings"></span>
-                Active Tasks
-            </h2>
-            <button class="btn-refresh" onclick="loadTasks()">
-                <span class="icon icon-refresh"></span>
-                Refresh
-            </button>
-            <div id="tasksContainer" class="tasks-container"></div>
+        <div class="bg-card rounded-xl border border-border p-6 shadow-sm">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold flex items-center gap-2">
+                    <span id="list-icon"></span> Active Tasks
+                </h2>
+                <button onclick="loadTasks()"
+                    class="px-4 py-2 bg-secondary text-foreground rounded-lg hover:bg-accent transition-colors flex items-center gap-2">
+                    Refresh
+                </button>
+            </div>
+            <div id="tasksContainer" class="space-y-4"></div>
         </div>
     </div>
 
+    <script src="../js/icons.js"></script>
     <script src="../js/api.js"></script>
+    <script src="../js/connection-status.js"></script>
     <script src="../js/execute.js"></script>
+    <script>
+        // Initialize Icons
+        document.getElementById('logo-icon').innerHTML = Icons.Box;
+        document.getElementById('nav-dashboard-icon').innerHTML = Icons.LayoutDashboard;
+        document.getElementById('nav-tasks-icon').innerHTML = Icons.ListTodo;
+        document.getElementById('nav-execute-icon').innerHTML = Icons.Play;
+        document.getElementById('nav-inspect-icon').innerHTML = Icons.Search;
+        document.getElementById('nav-monitor-icon').innerHTML = Icons.Activity;
+
+        document.getElementById('upload-icon').innerHTML = Icons.UploadCloud;
+        document.getElementById('features-icon').innerHTML = Icons.Shield;
+        document.getElementById('list-icon').innerHTML = Icons.ListTodo;
+    </script>
 </body>
+
 </html>

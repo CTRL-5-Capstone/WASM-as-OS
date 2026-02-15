@@ -12,14 +12,14 @@
             theme: {
                 extend: {
                     colors: {
-                        border: "hsl(217.2 32.6% 17.5%)",
-                        background: "hsl(222.2 84% 4.9%)",
+                        border: "hsl(220 15% 18%)",
+                        background: "hsl(220 20% 7%)",
                         foreground: "hsl(210 40% 98%)",
-                        primary: { DEFAULT: "hsl(210 40% 98%)", foreground: "hsl(222.2 47.4% 11.2%)" },
-                        secondary: { DEFAULT: "hsl(217.2 32.6% 17.5%)", foreground: "hsl(210 40% 98%)" },
-                        muted: { DEFAULT: "hsl(217.2 32.6% 17.5%)", foreground: "hsl(215 20.2% 65.1%)" },
-                        accent: { DEFAULT: "hsl(217.2 32.6% 17.5%)", foreground: "hsl(210 40% 98%)" },
-                        card: { DEFAULT: "hsl(222.2 84% 4.9%)", foreground: "hsl(210 40% 98%)" },
+                        primary: { DEFAULT: "hsl(173 80% 40%)", foreground: "hsl(173 80% 98%)" },
+                        secondary: { DEFAULT: "hsl(220 15% 14%)", foreground: "hsl(210 40% 98%)" },
+                        muted: { DEFAULT: "hsl(220 15% 14%)", foreground: "hsl(220 10% 55%)" },
+                        accent: { DEFAULT: "hsl(173 50% 15%)", foreground: "hsl(210 40% 98%)" },
+                        card: { DEFAULT: "hsl(220 18% 10%)", foreground: "hsl(210 40% 98%)" },
                     }
                 }
             }
@@ -71,7 +71,7 @@
                 </h3>
                 <div class="w-full h-4 bg-secondary rounded-full overflow-hidden">
                     <div id="cpuBar"
-                        class="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
+                        class="h-full bg-gradient-to-r from-teal-500 to-cyan-400 transition-all duration-500"
                         style="width: 0%"></div>
                 </div>
                 <p id="cpuValue" class="text-2xl font-bold mt-2">0%</p>
@@ -82,7 +82,7 @@
                 </h3>
                 <div class="w-full h-4 bg-secondary rounded-full overflow-hidden">
                     <div id="memBar"
-                        class="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-500"
+                        class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
                         style="width: 0%"></div>
                 </div>
                 <p id="memValue" class="text-2xl font-bold mt-2">0 KB</p>
