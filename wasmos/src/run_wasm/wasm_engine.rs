@@ -910,7 +910,7 @@ impl Curse
     }
 }
 
-pub fn wasm_engine(file_name: String, file_path: &Path) -> bool
+pub fn wasm_engine(file_name: String, file_path: &Path) -> Runtime
 {
     //execute wasm file.
     let wasm_binary:Vec<u8> = fs::read(file_path).expect("Wasm file could not be read");
@@ -919,20 +919,20 @@ pub fn wasm_engine(file_name: String, file_path: &Path) -> bool
     if wasm_binary.len() < 8
     {
         println!("Invalid file");
-        return false;
+        panic!();
     }
     if magic_num != wasm_binary[0..4] || version != wasm_binary[4..8]
     {
         println!("Invalid file");
-        return false;
+        panic!();
     }
     let leng = wasm_binary.len();
     let mut cursor = Curse::new(wasm_binary, leng);
     let mut module = cursor.parse_wasm();
     module.name = file_name;
     let mut wasm_runner = Runtime::new(module);
-    wasm_runner.run_prog();
-    true
+    wasm_runner.pop_run();
+    wasm_runner
 }
 
 

@@ -1,8 +1,10 @@
 //Dependacies
 use dialoguer::{Select, theme::ColorfulTheme};
+use std::sync::mpsc::Sender;
 use crate::struct_files::wasm_list::*;
+use crate::run_wasm::wasm_control::Messages;
 
-pub fn remove_wasm(wasm_list: &mut WasmList, index: usize) //Make function to remove WasmFile object from WasmList and wasm_list.txt
+pub fn remove_wasm(wasm_list: &mut WasmList, index: usize, to_thread: Sender<Messages>) //Make function to remove WasmFile object from WasmList and wasm_list.txt
 {   
     
     let mut file_list = wasm_list.list_namevec(); //Load Vec for dynamic delete menu
@@ -22,8 +24,9 @@ pub fn remove_wasm(wasm_list: &mut WasmList, index: usize) //Make function to re
         if choice == 0 {}
         else 
         {
+            to_thread.send(Messages::Delete(file_list[choice].clone())).expect("Critical Error Thread Unresponsive");
             wasm_list.delete(file_list[choice].clone());
-            remove_wasm(wasm_list, choice - 1); //Dev Note: Remove recursion and make this better
+            remove_wasm(wasm_list, choice - 1, to_thread.clone()); //Dev Note: Remove recursion and make this better
                                                       //Use a vec of refs and a loop instead?
         }
     }

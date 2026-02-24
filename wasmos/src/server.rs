@@ -131,11 +131,8 @@ pub async fn start_task(data: web::Data<AppState>, path: web::Path<String>) -> i
     let id = path.into_inner();
     
     // We need to implement start_wasm_by_id in wasm_control
-    if start_wasm_by_id(&mut list, &id) {
-        HttpResponse::Ok().json(serde_json::json!({"status": "started"}))
-    } else {
-        HttpResponse::BadRequest().json(serde_json::json!({"error": "failed to start"}))
-    }
+    start_wasm_by_id(&mut list, &id); 
+    HttpResponse::Ok().json(serde_json::json!({"status": "started"}))
 }
 
 #[post("/tasks/{id}/stop")]
@@ -158,3 +155,4 @@ pub async fn delete_task(data: web::Data<AppState>, path: web::Path<String>) -> 
     list.delete(id);
     HttpResponse::Ok().json(serde_json::json!({"status": "deleted"}))
 }
+

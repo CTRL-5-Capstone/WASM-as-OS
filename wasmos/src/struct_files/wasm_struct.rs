@@ -1,5 +1,6 @@
 use serde::{Serialize, Deserialize};
-
+use std::path::Path;
+use crate::run_wasm::{build_runtime::Runtime, wasm_engine};
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct WasmMetrics {
     pub runs: u32,
@@ -22,6 +23,7 @@ pub struct WasmFile //Struct for storing wasm file data
 {
     pub name: String,
     pub path_to: String,
+    pub runtime: Runtime,
     //pub size: String,
     pub running: bool,
     pub metrics: WasmMetrics,
@@ -34,6 +36,7 @@ impl WasmFile
     {
         Self
         {
+            runtime: wasm_engine::wasm_engine(name.clone(), Path::new(&path_to.clone())),
             name,
             path_to,
             //size,
@@ -41,5 +44,9 @@ impl WasmFile
             metrics: WasmMetrics::default(),
             execution_history: Vec::new(),
         }
+    }
+    pub fn run_false(&mut self)
+    {
+        self.running = false;
     }
 }

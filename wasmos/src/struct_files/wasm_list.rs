@@ -343,6 +343,74 @@ impl WasmList
         }
         (wasm_vec, nonrunning_vec)
     }
+    pub fn list_unpausedvec(&mut self) -> (Vec<Arc<Mutex<WasmNode>>>, Vec<String>) 
+    {            
+        let mut unpaused_vec: Vec<String> = Vec::new();
+        let mut wasm_vec: Vec<Arc<Mutex<WasmNode>>> = Vec::new();
+        let mut current = self.head.clone();
+        loop
+        {
+            match current
+            {
+                None => {break;}
+                Some(node) =>
+                {
+                    if !node.lock().unwrap().wasm_file.runtime.paused
+                    {
+                        unpaused_vec.push(node.lock().unwrap().wasm_file.name.clone());
+                        wasm_vec.push(node.clone());
+
+                    }
+                    current = node.lock().unwrap().next.clone();
+                }
+            }
+        }
+        (wasm_vec, unpaused_vec)
+    }
+    pub fn list_pausevec(&mut self) -> (Vec<Arc<Mutex<WasmNode>>>, Vec<String>) 
+    {            
+        let mut paused_vec: Vec<String> = Vec::new();
+        let mut wasm_vec: Vec<Arc<Mutex<WasmNode>>> = Vec::new();
+        let mut current = self.head.clone();
+        loop
+        {
+            match current
+            {
+                None => {break;}
+                Some(node) =>
+                {
+                    if node.lock().unwrap().wasm_file.runtime.paused
+                    {
+                        paused_vec.push(node.lock().unwrap().wasm_file.name.clone());
+                        wasm_vec.push(node.clone());
+
+                    }
+                    current = node.lock().unwrap().next.clone();
+                }
+            }
+        }
+        (wasm_vec, paused_vec)
+    }
+    pub fn convert_vec(&mut self) -> (Vec<Arc<Mutex<WasmNode>>>, Vec<String>)
+    {
+        let mut all_vec = Vec::new();
+        let mut all_names = Vec::new();
+        let mut current = self.head.clone();
+        loop
+        {
+            match current
+            {
+                None => {break;}
+                Some(node) =>
+                {
+                    all_names.push(node.lock().unwrap().wasm_file.name.clone());
+                    all_vec.push(node.clone());
+                    current = node.lock().unwrap().next.clone();
+                }
+            }
+        }
+        (all_vec, all_names)
+    }
     pub fn running_false(&mut self, node: Arc<Mutex<WasmNode>>)
     {
         node.lock().unwrap().wasm_file.running = false;

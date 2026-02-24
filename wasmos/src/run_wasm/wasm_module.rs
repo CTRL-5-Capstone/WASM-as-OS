@@ -1,4 +1,5 @@
-#[derive(Clone)]
+use serde::{Serialize, Deserialize};
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Module
 {
     pub name: String,
@@ -36,11 +37,10 @@ impl Module
             mmsg: Vec::new(),
             imports: 0,
             //memcount: 0,
-
         }
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum TypeBytes
 {
     I32,
@@ -60,7 +60,7 @@ pub fn decode_byte(byte: u8) -> Option<TypeBytes> //Decode byte to type
         _ => None,
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Import
 {
     pub modname: String,
@@ -71,32 +71,32 @@ pub struct Import
     pub mem: Option<MemoIn>,
     pub glob: Option<ShortGlobal>,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MemoIn{
     pub flag: u8,
     pub memmin: u32,
     pub memmax: Option<u32>,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ShortGlobal
 {
     pub typ: TypeBytes,
     pub is_mut: bool,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Types
 {
     pub args: Vec<Option<TypeBytes>>,
     pub turns: Vec<Option<TypeBytes>>,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Export
 {
     pub name: String,
     pub loc: u32,
     pub typ: ExpTyp,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ExpTyp
 {
     Memory,
@@ -105,14 +105,14 @@ pub enum ExpTyp
     Global,
 
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Global
 {
     pub typ: TypeBytes,
     pub ismut: bool,
     pub code: Code,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Element
 {
     pub tabid: u32,
@@ -126,7 +126,7 @@ pub enum MemTyp //Could probably just store the flag instead looking back while 
     Waiting,
     Immediate,
 }*/
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MemSeg
 {
     //pub memtyp: MemTyp,
@@ -134,13 +134,13 @@ pub struct MemSeg
     pub code: Code,
     pub dvec: Vec<u8>,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Function
 {
     pub vars: Vec<(u32, Option<TypeBytes>)>,
     pub code: Vec<Code>
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Tab
 {
     pub typ: u8,
@@ -150,7 +150,7 @@ pub struct Tab
     //pub tabmin64: Option<i64>,
     //pub tabmax64: Option<i64>
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Code
 {
     //The grandest of enumerations!
