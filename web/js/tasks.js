@@ -1,170 +1,107 @@
+// Refresh task list from API
 async function refreshTasks() {
     try {
         const result = await API.getTasks();
         const tasksList = document.getElementById('tasksList');
-        
+
         if (result.success && result.data.length > 0) {
             tasksList.innerHTML = result.data.map(task => {
-                const statusType = typeof task.status === 'string' ? task.status : (task.status.type || 'Loaded');
-                const statusText = task.status.error || statusType;
+                const status = (task.status || 'pending').toLowerCase();
                 const statusColors = {
-                    Loaded: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
-                    Running: 'bg-green-500/10 text-green-500 border-green-500/20',
-                    Paused: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
-                    Stopped: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
-                    Failed: 'bg-red-500/10 text-red-500 border-red-500/20'
+                    pending: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+                    running: 'bg-green-500/10 text-green-500 border-green-500/20',
+                    completed: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+                    stopped: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
+                    failed: 'bg-red-500/10 text-red-500 border-red-500/20',
                 };
-                const execHistory = task.execution_history || [];
-                const lastExec = execHistory.length > 0 ? execHistory[execHistory.length - 1] : null;
-                
+                const colorClass = statusColors[status] || statusColors.pending;
+
+                // Determine which buttons to show based on status
+                const canStart = status !== 'running';
+                const canStop = status === 'running';
+
                 return `
                 <div class="bg-card border border-border rounded-xl p-6 hover:border-primary/50 transition-all flex items-center justify-between">
                     <div>
                         <h4 class="text-lg font-semibold mb-1">${task.name}</h4>
                         <p class="text-sm text-muted-foreground mb-2">ID: ${task.id.substring(0, 8)}...</p>
-                        <span class="inline-block px-3 py-1 rounded-full text-xs font-medium border ${statusColors[statusType] || statusColors.Loaded}">${statusText}</span>
-                        ${task.metrics ? `
-                            <div class="mt-3 text-sm text-muted-foreground">
-                                <p>📊 Runs: ${task.metrics.runs} | Instructions: ${task.metrics.total_instructions.toLocaleString()} | Syscalls: ${task.metrics.total_syscalls}</p>
-                            </div>
-                        ` : ''}
-                        ${lastExec ? `
-                            <div style="margin-top: 0.5rem; font-size: 0.85rem; color: ${lastExec.success ? '#28a745' : '#dc3545'};">
-                                <p>✓ Last: ${lastExec.timestamp} (${lastExec.duration_us}µs) ${lastExec.success ? '✓' : '✗'}</p>
-                            </div>
-                        ` : ''}
-                        ${execHistory.length > 0 ? `
-                            <button onclick="showHistory('${task.id}')" style="margin-top: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer;">View History (${execHistory.length})</button>
-                        ` : ''}
+                        <span class="inline-block px-3 py-1 rounded-full text-xs font-medium border ${colorClass}">${status}</span>
+                        <p class="text-xs text-muted-foreground mt-2">Size: ${(task.file_size_bytes / 1024).toFixed(1)} KB</p>
                     </div>
                     <div class="flex gap-2">
-                        <button onclick="startTask('${task.id}')" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">Start</button>
-                        <button onclick="pauseTask('${task.id}')" class="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors">Pause</button>
-                        <button onclick="stopTask('${task.id}')" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">Stop</button>
-                        <button onclick="deleteTask('${task.id}')" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors">Delete</button>
+                        ${canStart ? `<button onclick="startTask('${task.id}')" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">Start</button>` : ''}
+                        ${canStop ? `<button onclick="stopTask('${task.id}')" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm">Stop</button>` : ''}
+                        <button onclick="deleteTask('${task.id}')" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors text-sm">Delete</button>
                     </div>
                 </div>
             `}).join('');
+        } else if (result.success) {
+            tasksList.innerHTML = '<p class="text-muted-foreground text-center py-8">No tasks loaded — upload a WASM file above</p>';
         } else {
-            tasksList.innerHTML = '<p class="text-muted-foreground text-center py-8">No tasks loaded</p>';
-        }
-    } catch (error) {
-        const tasksList = document.getElementById('tasksList');
-        if (tasksList) {
             tasksList.innerHTML = `
-                <div style="background: linear-gradient(135deg, #ffebee, #ffcdd2); padding: 2rem; border-radius: 16px; border-left: 5px solid #dc3545; text-align: center;">
-                    <h3 style="color: #d32f2f; margin-bottom: 1rem;">⚠ Failed to Fetch Tasks</h3>
-                    <p style="color: #666; margin-bottom: 1.5rem;">Cannot connect to API server at ${API_BASE}</p>
-                    <div style="background: white; padding: 1.5rem; border-radius: 12px; text-align: left;">
-                        <p style="font-weight: 600; margin-bottom: 1rem;">Start the backend server:</p>
-                        <ol style="margin-left: 1.5rem; line-height: 2;">
-                            <li>Install Rust from <a href="https://rustup.rs/" target="_blank" style="color: #667eea;">rustup.rs</a></li>
-                            <li>Run <code style="background: #f8f9fa; padding: 0.25rem 0.75rem; border-radius: 6px; font-family: monospace;">build.bat</code></li>
-                            <li>Run <code style="background: #f8f9fa; padding: 0.25rem 0.75rem; border-radius: 6px; font-family: monospace;">run-server.bat</code></li>
-                            <li>Refresh this page</li>
-                        </ol>
-                    </div>
+                <div class="bg-red-500/10 border border-red-500/20 rounded-xl p-6 text-center">
+                    <p class="text-red-400 font-semibold mb-2">⚠ Failed to Fetch Tasks</p>
+                    <p class="text-muted-foreground text-sm">Cannot connect to API. Make sure WASM-OS server is running.</p>
+                    <button onclick="refreshTasks()" class="mt-4 px-4 py-2 bg-secondary text-foreground rounded-lg hover:bg-accent transition-colors text-sm">Retry</button>
                 </div>
             `;
         }
+    } catch (error) {
+        console.error('refreshTasks error:', error);
     }
 }
 
-function showHistory(taskId) {
-    API.getTask(taskId).then(result => {
-        if (result.success && result.data.execution_history) {
-            const history = result.data.execution_history;
-            const historyHtml = `
-                <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); max-width: 600px; max-height: 80vh; overflow-y: auto; z-index: 1000;">
-                    <h3>Execution History</h3>
-                    <button onclick="this.parentElement.remove(); document.getElementById('overlay').remove();" style="position: absolute; top: 1rem; right: 1rem; background: #dc3545; color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;">Close</button>
-                    <div style="margin-top: 1rem;">
-                        ${history.map((exec, i) => `
-                            <div style="padding: 0.75rem; margin: 0.5rem 0; background: ${exec.success ? '#d4edda' : '#f8d7da'}; border-radius: 5px; border-left: 4px solid ${exec.success ? '#28a745' : '#dc3545'};">
-                                <p><strong>#${history.length - i}</strong> ${exec.timestamp}</p>
-                                <p>Duration: ${exec.duration_us}µs | Instructions: ${exec.instructions} | Syscalls: ${exec.syscalls}</p>
-                                <p>Status: ${exec.success ? '✓ Success' : '✗ Failed'}</p>
-                                ${exec.error ? `<p style="color: #dc3545; font-size: 0.85rem;">Error: ${exec.error}</p>` : ''}
-                            </div>
-                        `).reverse().join('')}
-                    </div>
-                </div>
-                <div id="overlay" onclick="this.previousElementSibling.remove(); this.remove();" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999;"></div>
-            `;
-            document.body.insertAdjacentHTML('beforeend', historyHtml);
-        }
-    });
-}
-
+// Upload new WASM task
 document.getElementById('loadTaskForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    
+
     const name = document.getElementById('taskName').value;
     const file = document.getElementById('wasmFile').files[0];
-    
+
     if (!file) {
         showNotification('Please select a WASM file', 'error');
         return;
     }
-    
+    if (!name.trim()) {
+        showNotification('Please enter a task name', 'error');
+        return;
+    }
+
     showNotification('Uploading...', 'info');
-    
+
     const reader = new FileReader();
     reader.onload = async (event) => {
         try {
-            const arrayBuffer = event.target.result;
-            const wasmData = new Uint8Array(arrayBuffer);
-            console.log('File:', file.name);
-            console.log('Size:', wasmData.length, 'bytes');
-            console.log('Magic:', Array.from(wasmData.slice(0, 4)).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
-            
+            const wasmData = new Uint8Array(event.target.result);
             const result = await API.loadTask(name, wasmData);
-            console.log('API Result:', result);
-            
+
             if (result.success) {
-                showNotification('Task loaded: ' + result.data, 'success');
+                showNotification('Task loaded: ' + (result.data.name || result.data.id), 'success');
                 document.getElementById('loadTaskForm').reset();
                 refreshTasks();
             } else {
-                console.error('API Error:', result.error);
                 showNotification('Failed: ' + (result.error || 'Unknown error'), 'error');
             }
         } catch (error) {
-            console.error('Upload error:', error);
             showNotification('Error: ' + error.message, 'error');
         }
     };
-    reader.onerror = () => {
-        showNotification('Failed to read file', 'error');
-    };
+    reader.onerror = () => showNotification('Failed to read file', 'error');
     reader.readAsArrayBuffer(file);
 });
 
+// Task actions with proper error messages
 async function startTask(id) {
     try {
         const result = await API.startTask(id);
         if (result.success) {
-            showNotification('Task started', 'success');
-            refreshTasks();
+            showNotification('Task executed successfully', 'success');
         } else {
             showNotification(result.error || 'Failed to start task', 'error');
         }
+        refreshTasks();
     } catch (error) {
-        showNotification('Error starting task', 'error');
-    }
-}
-
-async function pauseTask(id) {
-    try {
-        const result = await API.pauseTask(id);
-        if (result.success) {
-            showNotification('Task paused', 'success');
-            refreshTasks();
-        } else {
-            showNotification(result.error || 'Failed to pause task', 'error');
-        }
-    } catch (error) {
-        showNotification('Error pausing task', 'error');
+        showNotification('Error: ' + error.message, 'error');
     }
 }
 
@@ -173,30 +110,30 @@ async function stopTask(id) {
         const result = await API.stopTask(id);
         if (result.success) {
             showNotification('Task stopped', 'success');
-            refreshTasks();
         } else {
             showNotification(result.error || 'Failed to stop task', 'error');
         }
+        refreshTasks();
     } catch (error) {
-        showNotification('Error stopping task', 'error');
+        showNotification('Error: ' + error.message, 'error');
     }
 }
 
 async function deleteTask(id) {
-    if (!confirm('Are you sure you want to delete this task?')) return;
-    
+    if (!confirm('Delete this task?')) return;
     try {
         const result = await API.deleteTask(id);
         if (result.success) {
             showNotification('Task deleted', 'success');
-            refreshTasks();
         } else {
             showNotification(result.error || 'Failed to delete task', 'error');
         }
+        refreshTasks();
     } catch (error) {
-        showNotification('Error deleting task', 'error');
+        showNotification('Error: ' + error.message, 'error');
     }
 }
 
+// Initial load + auto-refresh every 10 seconds
 refreshTasks();
-setInterval(refreshTasks, 3000);
+setInterval(refreshTasks, 10000);

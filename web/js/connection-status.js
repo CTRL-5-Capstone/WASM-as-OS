@@ -22,7 +22,7 @@ function createStatusBanner() {
     `;
     banner.innerHTML = `
         <span style="margin-right: 0.5rem;">⚠</span>
-        <span>Failed to fetch: Server not running</span>
+        <span>Cannot reach server</span>
         <button onclick="window.location.reload()" style="margin-left: 1rem; background: white; color: #dc3545; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">Retry</button>
     `;
     document.body.appendChild(banner);
@@ -46,10 +46,10 @@ function hideConnectionError() {
     connectionStatus = 'connected';
 }
 
-// Check connection on page load
+// Check connection using /health/live (lightweight, no DB query)
 async function checkConnection() {
     try {
-        const response = await fetch(`${API_BASE}/stats`);
+        const response = await fetch('http://localhost:8080/health/live');
         if (response.ok) {
             hideConnectionError();
             return true;
