@@ -116,7 +116,7 @@ pub struct Global
 pub struct Element
 {
     pub tabid: u32,
-    pub elmtyp: Option<u8>, 
+    //pub elmtyp: Option<u8>, 
     pub elmoff: Code,
     pub fvec: Vec<u32>,
 }
