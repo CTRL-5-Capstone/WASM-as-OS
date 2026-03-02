@@ -1,0 +1,67 @@
+[package]
+name = "wasmos"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Logging and Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-actix-web = "0.7"
+
+# Web Framework
+actix-web = "4"
+actix-cors = "0.7"
+actix-files = "0.6"
+actix-web-lab = "0.20"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "chrono", "uuid"] }
+
+# Error Handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# Authentication & Security
+jsonwebtoken = "9.2"
+argon2 = "0.5"
+rand = "0.8"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+directories = "5.0"
+walkdir = "2.3"
+num_cpus = "1.16"
+
+# Metrics
+prometheus = "0.13"
+lazy_static = "1.4"
+
+# Rate Limiting
+governor = "0.6"
+
+# Async utilities
+futures-util = "0.3"
+
+# Auth
+actix-web-httpauth = "0.8"
+
+[dev-dependencies]
+tempfile = "3.8"
+mockall = "0.12"
+criterion = "0.5"
