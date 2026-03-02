@@ -1,6 +1,6 @@
 use core::panic;
 use super::wasm_module::*;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use serde::{Serialize, Deserialize};
@@ -21,6 +21,631 @@ pub struct StackCalls
     pub vars: Vec<StackTypes>,
 }
 #[derive(Clone, Serialize, Deserialize)]
+pub struct PFlags
+{
+    //I32
+    i32_eqz: bool,
+    i32_eq: bool,
+    i32_ne: bool,
+   //flow
+    unreachable: bool,
+    nop: bool,
+    block: bool,
+    pool: bool,
+    fi: bool,
+    esle: bool,
+    end: bool,
+    br: bool,
+    br_if: bool,
+    br_table: bool,
+    nruter: bool,
+    call: bool,
+    call_indirect: bool,
+    //Args
+    drop: bool,
+    select: bool,
+    //Vars
+    local_get: bool,
+    local_set: bool,
+    local_tee: bool,
+    global_get: bool,
+    global_set: bool,
+
+    //Mem
+    //LD
+    i32_load: bool,
+    i64_load: bool,
+    f32_load: bool,
+    f64_load: bool,
+    //I32
+    i32_load_8s: bool,
+    i32_load_8u: bool,
+    i32_load_16s: bool,
+    i32_load_16u: bool,
+    //I64
+    i64_load_8s: bool,
+    i64_load_8u: bool,
+    i64_load_16s: bool,
+    i64_load_16u: bool,
+    i64_load_32s: bool,
+    i64_load_32u: bool,
+    //STR
+    i32_store: bool,
+    i64_store: bool,
+    f32_store: bool,
+    f64_store: bool,
+    i32_store_8: bool,
+    i32_store_16: bool,
+    i64_store_8: bool,
+    i64_store_16: bool,
+    i64_store_32: bool,
+    memory_size: bool,
+    memory_grow: bool,
+    //Cons
+    i32_const: bool,
+    i64_const: bool,
+    f32_const: bool,
+    f64_const: bool,
+    //Comps    
+    i32_lts: bool,
+    i32_ltu: bool,
+    i32_gts: bool,
+    i32_gtu: bool,
+    i32_les: bool,
+    i32_leu: bool,
+    i32_ges: bool,
+    i32_geu: bool,
+    //I64
+    i64_eqz: bool,
+    i64_eq: bool,
+    i64_ne: bool,
+    i64_lts: bool,
+    i64_ltu: bool,
+    i64_gts: bool,
+    i64_gtu: bool,
+    i64_les: bool,
+    i64_leu: bool,
+    i64_ges: bool,
+    i64_geu: bool,
+    //F32
+    f32_wq: bool,
+    f32_ne: bool,
+    f32_lt: bool,
+    f32_gt: bool,
+    f32_le: bool,
+    f32_ge: bool,
+    //F64
+    f64_eq: bool,
+    f64_ne: bool,
+    f64_lt: bool,
+    f64_gt: bool,
+    f64_le: bool,
+    f64_ge: bool,
+    //Calcs
+    //I32
+    i32_clz: bool,
+    i32_ctz: bool,
+    i32_popcnt: bool,
+    i32_add: bool,
+    i32_sub: bool,
+    i32_mul: bool,
+    i32_divs: bool,
+    i32_divu: bool,
+    i32_rems: bool,
+    i32_remu: bool,
+    i32_and: bool,
+    i32_or: bool,
+    i32_xor: bool,
+    i32_shl: bool,
+    i32_shrs: bool,
+    i32_shru: bool,
+    i32_rotl: bool,
+    i32_rotr: bool,
+    //I64
+    i64_clz: bool,
+    i64_ctz: bool,
+    i64_popcnt: bool,
+    i64_add: bool,
+    i64_sub: bool,
+    i64_mul: bool,
+    i64_divs: bool,
+    i64_divu: bool,
+    i64_rems: bool,
+    i64_remu: bool,
+    i64_and: bool,
+    i64_or: bool,
+    i64_xor: bool,
+    i64_shl: bool,
+    i64_shrs: bool,
+    i64_shru: bool,
+    i64_rotl: bool,
+    i64_rotr: bool,
+    //FL
+    //F32
+    f32_abs: bool,
+    f32_neg: bool,
+    f32_ceil: bool,
+    f32_floor: bool,
+    f32_trunc: bool,
+    f32_nearest: bool,
+    f32_sqrt: bool,
+    f32_add: bool,
+    f32_sub: bool,
+    f32_mul: bool,
+    f32_div: bool,
+    f32_min: bool,
+    f32_max: bool,
+    f32_copysign: bool,
+    //F64
+    f64_abs: bool,
+    f64_neg: bool,
+    f64_ceil: bool,
+    f64_floor: bool,
+    f64_trunc: bool,
+    f64_nearest: bool,
+    f64_sqrt: bool,
+    f64_add: bool,
+    f64_sub: bool,
+    f64_mul: bool,
+    f64_div: bool,
+    f64_min: bool,
+    f64_max: bool,
+    f64_copysign: bool,
+    //tools
+    i32_wrap_i64: bool,
+    i32_trunc_f32s: bool,
+    i32_trunc_f32u: bool,
+    i32_trunc_f64s: bool,
+    i32_trunc_f64u: bool,
+    i64_extend_i32s: bool,
+    i64_extend_i32u: bool,
+    i64_trunc_f32s: bool,
+    i64_trunc_f32u: bool,
+    i64_trunc_f64s: bool,
+    i64_trunc_f64u: bool,
+    f32_convert_i32s: bool,
+    f32_convert_i32u: bool,
+    f32_convert_i64s: bool,
+    f32_convert_i64u: bool,
+    f32_demote_f64: bool,
+    f64_convert_i32s: bool,
+    f64_converti_32u: bool,
+    f64_convert_i64s: bool,
+    f64_convert_i64u: bool,
+    f64_promote_f32: bool,
+    i32_reinterpret_f32: bool,
+    i64_reinterpret_f64: bool,
+    f32_reinterpret_i32: bool,
+    f64_reinterpret_i64: bool
+}
+impl PFlags
+{
+    fn all_true(&mut self)
+    {
+        //I32
+        self.i32_eqz = true;
+        self.i32_eq = true;
+        self.i32_ne = true;
+        //flow
+        self.unreachable = true;
+        self.nop = true;
+        self.block = true;
+        self.pool = true;
+        self.fi = true;
+        self.esle = true;
+        self.end = true;
+        self.br = true;
+        self.br_if = true;
+        self.br_table = true;
+        self.nruter = true;
+        self.call = true;
+        self.call_indirect = true;
+        //Args
+        self.drop = true;
+        self.select = true;
+        //Vars
+        self.local_get = true;
+        self.local_set = true;
+        self.local_tee = true;
+        self.global_get = true;
+        self.global_set = true;
+
+        //Mem
+        //LD
+        self.i32_load = true;
+        self.i64_load = true;
+        self.f32_load = true;
+        self.f64_load = true;
+        //I32
+        self.i32_load_8s = true;
+        self.i32_load_8u = true; 
+        self.i32_load_16s = true;
+        self.i32_load_16u = true;
+        //I64
+        self.i64_load_8s = true;
+        self.i64_load_8u = true;
+        self.i64_load_16s = true;
+        self.i64_load_16u = true;
+        self.i64_load_32s = true;
+        self.i64_load_32u = true;
+        //STR
+        self.i32_store = true;
+        self.i64_store = true;
+        self.f32_store = true;
+        self.f64_store = true;
+        self.i32_store_8 = true;
+        self.i32_store_16 = true;
+        self.i64_store_8 = true;
+        self.i64_store_16 = true;
+        self.i64_store_32 = true;
+        self.memory_size = true;
+        self.memory_grow = true;
+        //Cons
+        self.i32_const = true;
+        self.i64_const = true;
+        self.f32_const = true;
+        self.f64_const = true;
+        //Comps    
+        self.i32_lts = true;
+        self.i32_ltu = true;
+        self.i32_gts = true;
+        self.i32_gtu = true;
+        self.i32_les = true;
+        self.i32_leu = true;
+        self.i32_ges = true;
+        self.i32_geu = true;
+        //I64
+        self.i64_eqz = true;
+        self.i64_eq = true;
+        self.i64_ne = true;
+        self.i64_lts = true;
+        self.i64_ltu = true;
+        self.i64_gts = true;
+        self.i64_gtu = true;
+        self.i64_les = true;
+        self.i64_leu = true;
+        self.i64_ges = true;
+        self.i64_geu = true;
+        //F32
+        self.f32_wq = true;
+        self.f32_ne = true;
+        self.f32_lt = true;
+        self.f32_gt = true;
+        self.f32_le = true;
+        self.f32_ge = true;
+        //F64
+        self.f64_eq = true;
+        self.f64_ne = true;
+        self.f64_lt = true;
+        self.f64_gt = true;
+        self.f64_le = true;
+        self.f64_ge = true;
+        //Calcs
+        //I32
+        self.i32_clz = true;
+        self.i32_ctz = true;
+        self.i32_popcnt = true;
+        self.i32_add = true;
+        self.i32_sub = true;
+        self.i32_mul = true;
+        self.i32_divs = true;
+        self.i32_divu = true;
+        self.i32_rems = true;
+        self.i32_remu = true;
+        self.i32_and = true;
+        self.i32_or = true;
+        self.i32_xor = true;
+        self.i32_shl = true;
+        self.i32_shrs = true;
+        self.i32_shru = true;
+        self.i32_rotl = true;
+        self.i32_rotr = true;
+        //I64
+        self.i64_clz = true;
+        self.i64_ctz = true;
+        self.i64_popcnt = true;
+        self.i64_add = true;
+        self.i64_sub = true;
+        self.i64_mul = true;
+        self.i64_divs = true;
+        self.i64_divu = true;
+        self.i64_rems = true;
+        self.i64_remu = true;
+        self.i64_and = true;
+        self.i64_or = true;
+        self.i64_xor = true;
+        self.i64_shl = true;
+        self.i64_shrs = true;
+        self.i64_shru = true;
+        self.i64_rotl = true;
+        self.i64_rotr = true;
+        //FL
+        //F32
+        self.f32_abs = true;
+        self.f32_neg = true;
+        self.f32_ceil = true;
+        self.f32_floor = true;
+        self.f32_trunc = true;
+        self.f32_nearest = true;
+        self.f32_sqrt = true;
+        self.f32_add = true;
+        self.f32_sub = true;
+        self.f32_mul = true;
+        self.f32_div = true;
+        self.f32_min = true;
+        self.f32_max = true;
+        self.f32_copysign = true;
+        //F64
+        self.f64_abs = true;
+        self.f64_neg = true;
+        self.f64_ceil = true;
+        self.f64_floor = true;
+        self.f64_trunc = true;
+        self.f64_nearest = true;
+        self.f64_sqrt = true;
+        self.f64_add = true;
+        self.f64_sub = true;
+        self.f64_mul = true;
+        self.f64_div = true;
+        self.f64_min = true;
+        self.f64_max = true;
+        self.f64_copysign = true;
+        //tools
+        self.i32_wrap_i64 = true;
+        self.i32_trunc_f32s = true;
+        self.i32_trunc_f32u = true;
+        self.i32_trunc_f64s = true;
+        self.i32_trunc_f64u = true;
+        self.i64_extend_i32s = true;
+        self.i64_extend_i32u = true;
+        self.i64_trunc_f32s = true;
+        self.i64_trunc_f32u = true;
+        self.i64_trunc_f64s = true;
+        self.i64_trunc_f64u = true;
+        self.f32_convert_i32s = true;
+        self.f32_convert_i32u = true;
+        self.f32_convert_i64s = true;
+        self.f32_convert_i64u = true;
+        self.f32_demote_f64 = true;
+        self.f64_convert_i32s = true;
+        self.f64_converti_32u = true;
+        self.f64_convert_i64s = true;
+        self.f64_convert_i64u = true;
+        self.f64_promote_f32 = true;
+        self.i32_reinterpret_f32 = true;
+        self.i64_reinterpret_f64 = true;
+        self.f32_reinterpret_i32 = true;
+        self.f64_reinterpret_i64 = true;
+    }
+    fn all_false(&mut self)
+    {
+        //I32
+        self.i32_eqz = false;
+        self.i32_eq = false;
+        self.i32_ne = false;
+        //flow
+        self.unreachable = false;
+        self.nop = false;
+        self.block = false;
+        self.pool = false;
+        self.fi = false;
+        self.esle = false;
+        self.end = false;
+        self.br = false;
+        self.br_if = false;
+        self.br_table = false;
+        self.nruter = false;
+        self.call = false;
+        self.call_indirect = false;
+        //Args
+        self.drop = false;
+        self.select = false;
+        //Vars
+        self.local_get = false;
+        self.local_set = false;
+        self.local_tee = false;
+        self.global_get = false;
+        self.global_set = false;
+
+        //Mem
+        //LD
+        self.i32_load = false;
+        self.i64_load = false;
+        self.f32_load = false;
+        self.f64_load = false;
+        //I32
+        self.i32_load_8s = false;
+        self.i32_load_8u = false; 
+        self.i32_load_16s = false;
+        self.i32_load_16u = false;
+        //I64
+        self.i64_load_8s = false;
+        self.i64_load_8u = false;
+        self.i64_load_16s = false;
+        self.i64_load_16u = false;
+        self.i64_load_32s = false;
+        self.i64_load_32u = false;
+        //STR
+        self.i32_store = false;
+        self.i64_store = false;
+        self.f32_store = false;
+        self.f64_store = false;
+        self.i32_store_8 = false;
+        self.i32_store_16 = false;
+        self.i64_store_8 = false;
+        self.i64_store_16 = false;
+        self.i64_store_32 = false;
+        self.memory_size = false;
+        self.memory_grow = false;
+        //Cons
+        self.i32_const = false;
+        self.i64_const = false;
+        self.f32_const = false;
+        self.f64_const = false;
+        //Comps    
+        self.i32_lts = false;
+        self.i32_ltu = false;
+        self.i32_gts = false;
+        self.i32_gtu = false;
+        self.i32_les = false;
+        self.i32_leu = false;
+        self.i32_ges = false;
+        self.i32_geu = false;
+        //I64
+        self.i64_eqz = false;
+        self.i64_eq = false;
+        self.i64_ne = false;
+        self.i64_lts = false;
+        self.i64_ltu = false;
+        self.i64_gts = false;
+        self.i64_gtu = false;
+        self.i64_les = false;
+        self.i64_leu = false;
+        self.i64_ges = false;
+        self.i64_geu = false;
+        //F32
+        self.f32_wq = false;
+        self.f32_ne = false;
+        self.f32_lt = false;
+        self.f32_gt = false;
+        self.f32_le = false;
+        self.f32_ge = false;
+        //F64
+        self.f64_eq = false;
+        self.f64_ne = false;
+        self.f64_lt = false;
+        self.f64_gt = false;
+        self.f64_le = false;
+        self.f64_ge = false;
+        //Calcs
+        //I32
+        self.i32_clz = false;
+        self.i32_ctz = false;
+        self.i32_popcnt = false;
+        self.i32_add = false;
+        self.i32_sub = false;
+        self.i32_mul = false;
+        self.i32_divs = false;
+        self.i32_divu = false;
+        self.i32_rems = false;
+        self.i32_remu = false;
+        self.i32_and = false;
+        self.i32_or = false;
+        self.i32_xor = false;
+        self.i32_shl = false;
+        self.i32_shrs = false;
+        self.i32_shru = false;
+        self.i32_rotl = false;
+        self.i32_rotr = false;
+        //I64
+        self.i64_clz = false;
+        self.i64_ctz = false;
+        self.i64_popcnt = false;
+        self.i64_add = false;
+        self.i64_sub = false;
+        self.i64_mul = false;
+        self.i64_divs = false;
+        self.i64_divu = false;
+        self.i64_rems = false;
+        self.i64_remu = false;
+        self.i64_and = false;
+        self.i64_or = false;
+        self.i64_xor = false;
+        self.i64_shl = false;
+        self.i64_shrs = false;
+        self.i64_shru = false;
+        self.i64_rotl = false;
+        self.i64_rotr = false;
+        //FL
+        //F32
+        self.f32_abs = false;
+        self.f32_neg = false;
+        self.f32_ceil = false;
+        self.f32_floor = false;
+        self.f32_trunc = false;
+        self.f32_nearest = false;
+        self.f32_sqrt = false;
+        self.f32_add = false;
+        self.f32_sub = false;
+        self.f32_mul = false;
+        self.f32_div = false;
+        self.f32_min = false;
+        self.f32_max = false;
+        self.f32_copysign = false;
+        //F64
+        self.f64_abs = false;
+        self.f64_neg = false;
+        self.f64_ceil = false;
+        self.f64_floor = false;
+        self.f64_trunc = false;
+        self.f64_nearest = false;
+        self.f64_sqrt = false;
+        self.f64_add = false;
+        self.f64_sub = false;
+        self.f64_mul = false;
+        self.f64_div = false;
+        self.f64_min = false;
+        self.f64_max = false;
+        self.f64_copysign = false;
+        //tools
+        self.i32_wrap_i64 = false;
+        self.i32_trunc_f32s = false;
+        self.i32_trunc_f32u = false;
+        self.i32_trunc_f64s = false;
+        self.i32_trunc_f64u = false;
+        self.i64_extend_i32s = false;
+        self.i64_extend_i32u = false;
+        self.i64_trunc_f32s = false;
+        self.i64_trunc_f32u = false;
+        self.i64_trunc_f64s = false;
+        self.i64_trunc_f64u = false;
+        self.f32_convert_i32s = false;
+        self.f32_convert_i32u = false;
+        self.f32_convert_i64s = false;
+        self.f32_convert_i64u = false;
+        self.f32_demote_f64 = false;
+        self.f64_convert_i32s = false;
+        self.f64_converti_32u = false;
+        self.f64_convert_i64s = false;
+        self.f64_convert_i64u = false;
+        self.f64_promote_f32 = false;
+        self.i32_reinterpret_f32 = false;
+        self.i64_reinterpret_f64 = false;
+        self.f32_reinterpret_i32 = false;
+        self.f64_reinterpret_i64 = false;
+    }
+    pub fn new() -> PFlags
+    {
+        PFlags { i32_eqz: false, i32_eq: false, i32_ne: false, unreachable: false, nop: false, 
+            block: false, pool: false, fi: false, esle: false, end: false, br: false, br_if: false,
+            br_table: false, nruter: false, call: false, call_indirect: false, drop: false, 
+            select: false, local_get: false, local_set: false, local_tee: false, global_get: false, 
+            global_set: false, i32_load: false, i64_load: false, f32_load: false, f64_load: false, 
+            i32_load_8s: false, i32_load_8u: false, i32_load_16s: false, i32_load_16u: false, i64_load_8s: false, 
+            i64_load_8u: false, i64_load_16s: false, i64_load_16u: false, i64_load_32s: false, i64_load_32u: false, 
+            i32_store: false, i64_store: false, f32_store: false, f64_store: false, i32_store_8: false, i32_store_16: false, 
+            i64_store_8: false, i64_store_16: false, i64_store_32: false, memory_size: false, memory_grow: false, i32_const: false, 
+            i64_const: false, f32_const: false, f64_const: false, i32_lts: false, i32_ltu: false, i32_gts: false, i32_gtu: false, 
+            i32_les: false, i32_leu: false, i32_ges: false, i32_geu: false, i64_eqz: false, i64_eq: false, i64_ne: false, i64_lts: false, 
+            i64_ltu: false, i64_gts: false, i64_gtu: false, i64_les: false, i64_leu: false, i64_ges: false, i64_geu: false, f32_wq: false, 
+            f32_ne: false, f32_lt: false, f32_gt: false, f32_le: false, f32_ge: false, f64_eq: false, f64_ne: false, f64_lt: false, 
+            f64_gt: false, f64_le: false, f64_ge: false, i32_clz: false, i32_ctz: false, i32_popcnt: false, i32_add: false, i32_sub: false, 
+            i32_mul: false, i32_divs: false, i32_divu: false, i32_rems: false, i32_remu: false, i32_and: false, i32_or: false, i32_xor: false, 
+            i32_shl: false, i32_shrs: false, i32_shru: false, i32_rotl: false, i32_rotr: false, i64_clz: false, i64_ctz: false, i64_popcnt: false, 
+            i64_add: false, i64_sub: false, i64_mul: false, i64_divs: false, i64_divu: false, i64_rems: false, i64_remu: false, i64_and: false, 
+            i64_or: false, i64_xor: false, i64_shl: false, i64_shrs: false, i64_shru: false, i64_rotl: false, i64_rotr: false, f32_abs: false, 
+            f32_neg: false, f32_ceil: false, f32_floor: false, f32_trunc: false, f32_nearest: false, f32_sqrt: false, f32_add: false, 
+            f32_sub: false, f32_mul: false, f32_div: false, f32_min: false, f32_max: false, f32_copysign: false, f64_abs: false, f64_neg: false, 
+            f64_ceil: false, f64_floor: false, f64_trunc: false, f64_nearest: false, f64_sqrt: false, f64_add: false, f64_sub: false, 
+            f64_mul: false, f64_div: false, f64_min: false, f64_max: false, f64_copysign: false, i32_wrap_i64: false, i32_trunc_f32s: false, 
+            i32_trunc_f32u: false, i32_trunc_f64s: false, i32_trunc_f64u: false, i64_extend_i32s: false, i64_extend_i32u: false, 
+            i64_trunc_f32s: false, i64_trunc_f32u: false, i64_trunc_f64s: false, i64_trunc_f64u: false, f32_convert_i32s: false, 
+            f32_convert_i32u: false, f32_convert_i64s: false, f32_convert_i64u: false, f32_demote_f64: false, f64_convert_i32s: false, 
+            f64_converti_32u: false, f64_convert_i64s: false, f64_convert_i64u: false, f64_promote_f32: false, i32_reinterpret_f32: false, 
+            i64_reinterpret_f64: false, f32_reinterpret_i32: false, f64_reinterpret_i64: false }
+    }
+}
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GlobsGlobal
 {
     typ: StackTypes, 
@@ -29,6 +654,8 @@ pub struct GlobsGlobal
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Runtime
 {
+    pub fpflags: PFlags,
+    pub spflags: PFlags,
     pub paused: bool,
     pub incount: usize,
     pub ended: bool,
@@ -113,7 +740,7 @@ impl Runtime
         let mut globs: Vec<GlobsGlobal> = Vec::new(); 
         for global in &module.glob 
         {
-            let mut gval: StackTypes = match global.code
+            let gval: StackTypes = match global.code
             {
                 Code::I32Const(cons) => StackTypes::I32(cons),
                 Code::I64Const(cons) => StackTypes::I64(cons),
@@ -144,7 +771,7 @@ impl Runtime
                 off +=1;
             }
         }
-        Runtime{paused: false, incount: 0, ended: false, priority: 1, flog: false, clog: false, limflag: false, limit: 0, module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs,}
+        Runtime{fpflags: PFlags::new(), spflags: PFlags::new(), paused: false, incount: 0, ended: false, priority: 1, flog: false, clog: false, limflag: false, limit: 0, module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs,}
     } 
     pub fn pop_run(&mut self)
     {
@@ -253,7 +880,7 @@ impl Runtime
             Code::Nop => (), //instruction is a placeholder in wasm
             Code::Block(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::Block, break_tar: call.code.len() - 1, size: self.value_stack.len(), ret_typ: typ}),
             Code::Loop(typ) => self.flow_stack.push(FlowCode{ flow_type: FlowType::Loop, break_tar: call.code.len(), size: self.value_stack.len(), ret_typ: typ,}),    
-            //Code::If(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::If, break_tar: , size: (), ret_typ: () }),
+            //Code::If(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::If, break_tar: , size: false, ret_typ: false }),
 //                Code::Else => //log::info!("Else"),
             Code::Br(us) => 
             {
@@ -394,9 +1021,9 @@ impl Runtime
             },
             Code::GlobalGet(loc) =>
             {
-                let mut loc = loc as usize;
+                let loc = loc as usize;
                 assert!(loc <= self.globs.len());
-                let to_stack = self.globs[loc as usize].typ.clone();
+                let to_stack = self.globs[loc].typ.clone();
                 lstring = format!("{}. Global Get({}) {:?}", self.incount, loc, to_stack);
                 self.value_stack.push(to_stack);
                 //log::info!("Global Get: Index: {}, Value: {}", loc, to_stack);
