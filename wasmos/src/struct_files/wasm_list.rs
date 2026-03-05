@@ -426,3 +426,80 @@ impl WasmList
     }
     */
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_list_is_empty() {
+        let mut list = WasmList::new_list();
+        let names = list.list_namevec();
+        assert!(names.is_empty(), "New WasmList should be empty");
+    }
+
+    #[test]
+    fn test_runningvec_lengths_match() {
+        let mut list = WasmList::new_list();
+        let (wasm_vec, names_vec) = list.list_runningvec();
+        assert_eq!(wasm_vec.len(), names_vec.len());
+    }
+
+    #[test]
+    fn test_haltedvec_lengths_match() {
+        let mut list = WasmList::new_list();
+        let (wasm_vec, names_vec) = list.list_haltedvec();
+        assert_eq!(wasm_vec.len(), names_vec.len());
+    }
+
+    #[test]
+    fn test_pausevec_empty_on_new_list() {
+        let mut list = WasmList::new_list();
+        let (wasm_vec, paused_names) = list.list_pausevec();
+        assert_eq!(wasm_vec.len(), 0);
+        assert_eq!(paused_names.len(), 0);
+    }
+
+    #[test]
+    fn test_unpausedvec_lengths_match() {
+        let mut list = WasmList::new_list();
+        let (wasm_vec, unpaused_names) = list.list_unpausedvec();
+        assert_eq!(wasm_vec.len(), unpaused_names.len());
+    }
+
+    #[test]
+    fn test_convertvec_lengths_match() {
+        let mut list = WasmList::new_list();
+        let (all_vec, all_names) = list.convert_vec();
+        assert_eq!(all_vec.len(), all_names.len());
+    }
+
+    #[test]
+    fn test_paused_unpaused_are_disjoint() {
+        let mut list = WasmList::new_list();
+        let (_, paused_names) = list.list_pausevec();
+        let (_, unpaused_names) = list.list_unpausedvec();
+        for name in &paused_names {
+            assert!(!unpaused_names.contains(name));
+        }
+    }
+
+    #[test]
+    fn test_running_halted_are_disjoint() {
+        let mut list = WasmList::new_list();
+        let (_, running_names) = list.list_runningvec();
+        let (_, halted_names) = list.list_haltedvec();
+        for name in &running_names {
+            assert!(!halted_names.contains(name));
+        }
+    }
+
+    #[test]
+    fn test_convert_equals_paused_plus_unpaused() {
+        let mut list = WasmList::new_list();
+        let (all_vec, _)      = list.convert_vec();
+        let (paused_vec, _)   = list.list_pausevec();
+        let (unpaused_vec, _) = list.list_unpausedvec();
+        assert_eq!(all_vec.len(), paused_vec.len() + unpaused_vec.len());
+    }
+}
