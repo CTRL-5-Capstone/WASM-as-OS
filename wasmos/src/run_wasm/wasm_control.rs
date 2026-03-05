@@ -1,25 +1,29 @@
-use crate::run_wasm::build_runtime::Runtime;
+use crate::run_wasm::build_runtime::{Runtime, PFlags};
 use dialoguer::{Select, theme::ColorfulTheme};
 use crate::struct_files::wasm_list::*;
 use std::path::Path;
-use std::time;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::thread::sleep;
 use std::sync::mpsc::TryRecvError;
-use std::time::Duration;
 use std::sync::mpsc::{Receiver, Sender};
 
+pub enum RuntimeMessages
+{
+    Start(Runtime),
+    ScheduleRuntime(u64, Runtime),
+}
 pub enum Messages
 {
 //    Error(String, bool),
     Flog(String, bool),
     Clog(String, bool),
-    Start(Runtime),
     Pause(String),
     Resume(String),
     Stop(String),
     Limit(String, usize, bool),
     Delete(String),
-    PrintFlags(),
+    PrintFlags(String, bool, Vec<PrintCode>),
+    AllFlags(String, bool, bool)
 }
 pub enum PrintCode
 {
@@ -244,7 +248,7 @@ pub fn update_from_thread(shared_list: &mut WasmList, from_thread: &mut Receiver
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => panic!("Critical Error Thread Unresponsive"),
             }
-            sleep(time::Duration::from_millis(100));
+            sleep(Duration::from_millis(100));
         }  
 }
 pub fn start_wasm_by_id(wasm_list: &mut WasmList, id: &str) {
@@ -272,7 +276,7 @@ pub fn halt_wasm_by_id(wasm_list: &mut WasmList, id: &str) -> bool {
     }
     false
 }
-pub fn new_runtime_options(mut runtime: Runtime, to_thread: Sender<Messages>)
+pub fn new_runtime_options(mut runtime: Runtime, to_thread: Sender<RuntimeMessages>)
 {//Function provides a menu for assigning a new runtime settings.
     let true_arr = [
         "Start Runtime",
@@ -307,7 +311,7 @@ pub fn new_runtime_options(mut runtime: Runtime, to_thread: Sender<Messages>)
         .unwrap();
         match choice{
             0 => {
-                to_thread.send(Messages::Start(runtime)).expect("Critical Error Thread Unresponsive");
+                to_thread.send(RuntimeMessages::Start(runtime)).expect("Critical Error Thread Unresponsive");
                 break;
             }
             1 => { //Case For setting a instruction limit.
@@ -511,7 +515,7 @@ pub fn runtime_options(mut runtime: Runtime, to_thread: Sender<Messages>, runnin
         }
     }
 }
-pub fn start_wasm(wasm_list: &mut WasmList, to_thread: Sender<Messages>)
+pub fn start_wasm(wasm_list: &mut WasmList, to_thread: Sender<RuntimeMessages>)
 {
     let wasm_tup = wasm_list.list_haltedvec();
     let mut wasm_vec = wasm_tup.0;
@@ -716,17 +720,55 @@ pub fn edit_runtimes(wasm_list: &mut WasmList, to_thread: Sender<Messages>)
         }
 
 }
-pub fn runtime_loop(msgto_main: Sender<Messages>, msgfrom_main: Receiver<Messages>)
+pub fn runtime_loop(msgto_main: Sender<Messages>, msgfrom_main: Receiver<Messages>, rmsgfrm_main: Receiver<RuntimeMessages>)
 {
     let mut activity;
     let mut runtime_wasms: Vec<Runtime> = Vec::new();
+    let mut scheduled_wasms: Vec<(u64, Runtime)> = Vec::new();
     let mut i = 0;
     loop
     {
+        while i < scheduled_wasms.len()
+        {
+            let cur_time = match SystemTime::now().duration_since(UNIX_EPOCH)
+            {
+                Ok(time) => time.as_secs(),
+                _ => panic!("System Clock is Incorrect"),
+
+            };
+            if scheduled_wasms[i].0 <= cur_time
+            {
+                let runt = scheduled_wasms[i].1.clone();
+                scheduled_wasms.remove(i);
+                let mut j = 0;
+                while j < runtime_wasms.len()
+                {
+                    if runtime_wasms[j].module.name < scheduled_wasms[j].1.module.name{break;}
+                    j += 1;
+                }
+                runtime_wasms.insert(j, runt);     
+            }
+            else{i += 1;}
+        }
+        while let Ok(mssg) = rmsgfrm_main.try_recv()
+        {
+            match mssg
+            {
+                RuntimeMessages::Start(rtime) => {
+                    while i < runtime_wasms.len()
+                    {
+                        if runtime_wasms[i].module.name < rtime.module.name{break;}
+                    }
+                    runtime_wasms.insert(i, rtime);
+                }
+                RuntimeMessages::ScheduleRuntime(tim, runt) => scheduled_wasms.push((tim, runt)), 
+            }
+            sleep(Duration::from_millis(1));
+            i = 0;
+        }
         while let Ok(mssg) = msgfrom_main.try_recv()
         {
             match mssg{
-                Messages::Start(rtime) => runtime_wasms.push(rtime),
                 Messages::Stop(name) => {
                     while i <  runtime_wasms.len()
                     {
@@ -805,12 +847,734 @@ pub fn runtime_loop(msgto_main: Sender<Messages>, msgfrom_main: Receiver<Message
                         }
                         i += 1;
                     }
+                }  
+                Messages::PrintFlags(name, cftyp, flags) => {
+                    if let Ok(ind) = runtime_wasms.binary_search_by_key(&name, |rtime| rtime.module.name.clone())
+                    {
+                        for flag in flags{
+                            match flag{
+                                //enums for all prints
+                                //I32
+                                PrintCode::I32Eqz(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Eq(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Ne(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //flow
+                                PrintCode::Unreachable(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::Nop(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::Block(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::Loop(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::If(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::Else(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::End(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::Br(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::BrIf(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::BrTable(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::Return(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::Call(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::CallIndirect(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //Args
+                                PrintCode::Drop(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::Select(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //Vars
+                                PrintCode::LocalGet(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::LocalSet(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::LocalTee(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::GlobalGet(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::GlobalSet(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
 
+                                //Mem
+                                //LD
+                                PrintCode::I32Load(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Load(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Load(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Load(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //I32
+                                PrintCode::I32Load8S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Load8U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Load16S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Load16U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //I64
+                                PrintCode::I64Load8S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Load8U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Load16S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Load16U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Load32S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Load32U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //STR
+                                PrintCode::I32Store(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Store(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Store(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Store(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Store8(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Store16(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Store8(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Store16(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Store32(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::MemorySize(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::MemoryGrow(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //Cons
+                                PrintCode::I32Const(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Const(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Const(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Const(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //Comps    
+                                PrintCode::I32LtS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32LtU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32GtS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32GtU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32LeS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32LeU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32GeS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32GeU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //I64
+                                PrintCode::I64Eqz(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Eq(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Ne(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64LtS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64LtU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64GtS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64GtU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64LeS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64LeU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64GeS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64GeU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //F32
+                                PrintCode::F32Eq(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Ne(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Lt(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Gt(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Le(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Ge(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //F64
+                                PrintCode::F64Eq(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Ne(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Lt(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Gt(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Le(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Ge(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //Calcs
+                                //I32
+                                PrintCode::I32Clz(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Ctz(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Popcnt(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Add(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Sub(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Mul(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32DivS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32DivU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32RemS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32RemU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32And(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Or(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Xor(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Shl(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32ShrS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32ShrU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Rotl(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32Rotr(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //I64
+                                PrintCode::I64Clz(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Ctz(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Popcnt(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Add(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Sub(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Mul(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64DivS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64DivU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64RemS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64RemU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64And(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Or(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Xor(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Shl(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64ShrS(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64ShrU(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Rotl(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64Rotr(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //FL
+                                //F32
+                                PrintCode::F32Abs(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Neg(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Ceil(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Floor(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Trunc(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Nearest(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Sqrt(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Add(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Sub(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Mul(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Div(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Min(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Max(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32Copysign(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //F64
+                                PrintCode::F64Abs(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Neg(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Ceil(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Floor(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Trunc(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Nearest(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Sqrt(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Add(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Sub(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Mul(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Div(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Min(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Max(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64Copysign(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                //tools
+                                PrintCode::I32WrapI64(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32TruncF32S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32TruncF32U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32TruncF64S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32TruncF64U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64ExtendI32S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64ExtendI32U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64TruncF32S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64TruncF32U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64TruncF64S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64TruncF64U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32ConvertI32S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32ConvertI32U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32ConvertI64S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32ConvertI64U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32DemoteF64(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64ConvertI32S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64ConvertI32U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64ConvertI64S(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64ConvertI64U(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64PromoteF32(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I32ReinterpretF32(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::I64ReinterpretF64(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F32ReinterpretI32(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }
+                                PrintCode::F64ReinterpretI64(flag) => {
+                                    if cftyp{runtime_wasms[ind].spflags.i32_eqz = flag;}
+                                    else{runtime_wasms[ind].fpflags.i32_eqz = flag;}
+                                }    
+                            }
+                        }
+                    }
+                    else{
+                       println!("Runtime: {} has ended.", name);
+                        continue;
+                    }
                 }
-                _ => panic!("Invalid Thread Communication."),
-                
+                _ => (),
             }
-            sleep(Duration::from_millis(300));
+            sleep(Duration::from_millis(1));
             i = 0;
         }
         
@@ -830,7 +1594,8 @@ pub fn runtime_loop(msgto_main: Sender<Messages>, msgfrom_main: Receiver<Message
                             runtime_wasms[i].limit -= 1;
                             activity = true;
                         }
-                        else{
+                        else
+                        {
                             runtime_wasms[i].paused = true;
                         }
                     }
@@ -852,7 +1617,7 @@ pub fn runtime_loop(msgto_main: Sender<Messages>, msgfrom_main: Receiver<Message
         }
         if !activity
         {
-            sleep(time::Duration::from_secs(1));
+            sleep(Duration::from_secs(1));
         }
         i = 0;
     }

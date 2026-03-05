@@ -62,9 +62,10 @@ async fn main() -> std::io::Result<()> {
     // Give the server a moment to start
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
-    let (to_thread, msgfrom_main): (Sender<Messages>, Receiver<Messages>) = channel();
+    let (to_thread, mut msgfrom_main): (Sender<Messages>, Receiver<Messages>) = channel();
     let (msgto_main, mut from_thread): (Sender<Messages>, Receiver<Messages>) = channel();
-    let _lop_thread = spawn(||{runtime_loop(msgto_main, msgfrom_main);});
+    let (rto_thread, mut rfrom_main) = channel();
+    let _lop_thread = spawn(||{runtime_loop(msgto_main, msgfrom_main, rfrom_main);});
     let mut choice = 0;
     // CLI Loop
     loop {
@@ -106,7 +107,7 @@ async fn main() -> std::io::Result<()> {
             2 => println!("Display Runtime Metrics"), 
             3 => {
                 let mut list = shared_list.lock().unwrap();
-                start_wasm(&mut list, to_thread.clone());
+                start_wasm(&mut list, rto_thread.clone());
             },
             4 => pause_wasm(&mut shared_list.lock().unwrap(), to_thread.clone()),
             5 => unpause_wasm(&mut shared_list.lock().unwrap(), to_thread.clone()),
