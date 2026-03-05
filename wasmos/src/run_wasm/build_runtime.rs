@@ -3074,3 +3074,44 @@ impl Runtime
         //wasfile.flush().expect("Cant flush log file");
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_simple_math() {
+        let result = 10 + 5;
+
+        assert_eq!(result, 15);
+    }
+
+    #[test]
+    fn test_subtraction() {
+        let result = 10 - 3;
+
+        assert_eq!(result, 7);
+    }
+
+    #[test]
+    fn test_multiplication() {
+        let result = 4 * 3;
+
+        assert_eq!(result, 12);
+    }
+
+    #[test]
+    fn test_division() {
+        let result = 12 / 3;
+
+        assert_eq!(result, 4);
+    }
+
+    #[test]
+    fn test_vector_sum() {
+        let numbers = vec![1,2,3,4];
+
+        let sum: i32 = numbers.iter().sum();
+
+        assert_eq!(sum, 10);
+    }
+}

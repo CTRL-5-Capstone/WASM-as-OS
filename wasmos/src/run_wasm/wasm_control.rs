@@ -857,3 +857,43 @@ pub fn runtime_loop(msgto_main: Sender<Messages>, msgfrom_main: Receiver<Message
         i = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_boolean_true() {
+        let flag = true;
+        assert!(flag);
+    }
+
+    #[test]
+    fn test_boolean_false() {
+        let flag = false;
+        assert!(!flag);
+    }
+
+    #[test]
+    fn test_flag_toggle() {
+        let mut flag = false;
+
+        flag = !flag;
+
+        assert!(flag);
+    }
+
+    #[test]
+    fn test_integer_comparison() {
+        let a = 5;
+        let b = 5;
+
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_integer_addition() {
+        let result = 2 + 3;
+
+        assert_eq!(result, 5);
+    }
+}
