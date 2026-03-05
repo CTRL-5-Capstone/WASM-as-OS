@@ -15,6 +15,7 @@ pub struct Module
     pub fcce: Vec<Function>,
     pub mmsg: Vec<MemSeg>,
     pub imports: u32,
+    //pub memcount: u32
 }
 impl Module
 {
@@ -35,6 +36,7 @@ impl Module
             fcce: Vec::new(),
             mmsg: Vec::new(),
             imports: 0,
+            //memcount: 0,
         }
     }
 }
@@ -114,13 +116,21 @@ pub struct Global
 pub struct Element
 {
     pub tabid: u32,
-    pub elmtyp: Option<u8>, 
+    //pub elmtyp: Option<u8>, 
     pub elmoff: Code,
     pub fvec: Vec<u32>,
 }
+/*#[derive(Clone)] for wasm 1 plus
+pub enum MemTyp //Could probably just store the flag instead looking back while working on element section
+{
+    Waiting,
+    Immediate,
+}*/
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MemSeg
 {
+    //pub memtyp: MemTyp,
+    //pub code:  Vec<Code>,
     pub code: Code,
     pub dvec: Vec<u8>,
 }
@@ -137,6 +147,8 @@ pub struct Tab
     pub flag: u8,
     pub tabmin: u32,
     pub tabmax: Option<u32>,
+    //pub tabmin64: Option<i64>,
+    //pub tabmax64: Option<i64>
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Code
@@ -343,3 +355,4 @@ pub enum Code
     F32ReinterpretI32,
     F64ReinterpretI64,
 }
+

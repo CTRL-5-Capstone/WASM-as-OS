@@ -82,7 +82,7 @@ fn default_cors_origins() -> Vec<String> {
 }
 
 fn default_database_url() -> String {
-    "postgresql://postgres:postgres@localhost:5432/wasmos".to_string()
+    "postgresql://postgres:postgres@localhost:5432/wasm_os".to_string()
 }
 
 fn default_auth_enabled() -> bool {
@@ -140,7 +140,7 @@ impl Config {
             .set_default("server.port", 8080)?
             .set_default("server.workers", num_cpus::get() as i64)?
             .set_default("server.cors_origins", vec!["*"])?
-            .set_default("database.url", "postgresql://postgres:postgres@localhost:5432/wasmos")?
+            .set_default("database.url", "postgresql://postgres:postgres@localhost:5432/wasm_os")?
             .set_default("security.auth_enabled", false)?
             .set_default("security.jwt_secret", "")?
             .set_default("security.jwt_expiry_hours", 24)?

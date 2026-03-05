@@ -1,6 +1,7 @@
 use actix_web::{get, post, delete, web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
+use crate::run_wasm::wasm_control::start_wasm;
 use crate::struct_files::wasm_list::WasmList;
 use crate::run_wasm::wasm_control::start_wasm_by_id;
 use crate::run_wasm::wasm_control::halt_wasm_by_id;
@@ -131,7 +132,8 @@ pub async fn start_task(data: web::Data<AppState>, path: web::Path<String>) -> i
     let id = path.into_inner();
     
     // We need to implement start_wasm_by_id in wasm_control
-    start_wasm_by_id(&mut list, &id); 
+    ;
+    //start_wasm_by_id(&mut list, &id); 
     HttpResponse::Ok().json(serde_json::json!({"status": "started"}))
 }
 

@@ -3,6 +3,7 @@ mod struct_files;
 mod run_wasm;
 mod server;
 
+use std::env;
 use crate::struct_files::wasm_list::*;
 use crate::utility_files::wasm_loader::*;
 use crate::utility_files::wasm_destroyer::*;
@@ -18,7 +19,10 @@ use crate::run_wasm::wasm_control::*;
 async fn main() -> std::io::Result<()> {
     let mut wasmos_list = WasmList::new_list();
     load_file(&mut wasmos_list);
-    
+    let (to_thread, mut msgfrom_main): (Sender<Messages>, Receiver<Messages>) = channel();
+    let (msgto_main, mut from_thread): (Sender<Messages>, Receiver<Messages>) = channel();
+    let (rto_thread, mut rfrom_main) = channel();
+    let _lop_thread = spawn(||{runtime_loop(msgto_main, msgfrom_main, rfrom_main);});
     // Wrap in Arc<Mutex> for sharing between threads
     let shared_list = Arc::new(Mutex::new(wasmos_list));
     
@@ -68,6 +72,7 @@ async fn main() -> std::io::Result<()> {
     let _lop_thread = spawn(||{runtime_loop(msgto_main, msgfrom_main, rfrom_main);});
     let mut choice = 0;
     // CLI Loop
+
     loop {
         update_from_thread(&mut shared_list.lock().unwrap(), &mut from_thread);
         // We need to lock the list for CLI operations

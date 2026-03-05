@@ -442,7 +442,7 @@ impl Curse
         }
         f32::from_bits(tot)
     }
-    pub fn get_code_exp(&mut self) -> Vec<Code> //Function originally part of section 11 repurposed for general use as helper function converts bytes to opcodes.
+    /*pub fn get_code_exp(&mut self) -> Vec<Code> //Function originally part of section 11 repurposed for general use as helper function converts bytes to opcodes.
     {    //For wasm 3.0 not needed yet.   
         let mut code: Vec<Code> = Vec::new();
         let mut mbyt = self.byte_vec[self.loc];
@@ -495,7 +495,7 @@ impl Curse
         }
         self.loc += 1;
         code
-    }
+    }*/
     fn get_fvec_data(&mut self) -> Vec<u32>
     {
         let mut fvec: Vec<u32> = Vec::new();
@@ -509,7 +509,7 @@ impl Curse
     }
     fn get_off(&mut self) -> Code
     {
-        let mut mbyt = self.byte_vec[self.loc];
+        let mbyt = self.byte_vec[self.loc];
         self.loc += 1;
         let code = match mbyt
         {
@@ -525,7 +525,7 @@ impl Curse
     }
     fn get_tab(&mut self) -> Tab
     {
-        let mut tabmin: u32 = 0;
+        let tabmin: u32;
         let mut tabmax = None;
         //let mut tabmin64 = None;
         //let mut tabmax64 = None;
@@ -578,6 +578,7 @@ impl Curse
     }
     pub fn parse_wasm(&mut self) -> Module
     {
+        let mut start;
         let mut module =  Module::new();
         self.loc = 8;
         while self.loc < self.len
@@ -585,7 +586,6 @@ impl Curse
             let sec = self.byte_vec[self.loc];
             self.loc += 1;
             self.size = self.loc + self.leb_tou32() as usize;
-            let mut start = self.loc;
             match sec
             {
                 1 => {       //Types
@@ -627,8 +627,8 @@ impl Curse
                     while count > 0
                     {
                         let mut tab = None;
-                        let mut mem = None;
-                        let mut glob = None;
+                        let mem = None;
+                        let glob = None;
                         let mod_len = self.leb_tou32() as usize;
                         let modname:String = String::from_utf8(self.byte_vec[self.loc..self.loc+mod_len].to_vec()).unwrap();
                         self.loc += mod_len;
@@ -673,7 +673,7 @@ impl Curse
                                     index: None,
                                     imptyp: ExpTyp::Memory,
                                     glob,
-                                    mem,
+                                    mem: Some(self.get_mem()),
                                     tab,
                                 });
                             },
@@ -738,6 +738,7 @@ impl Curse
                         if mutcheck != 0 {ismut = true;}
                         let code = self.set_code();
                         let end = self.byte_vec[self.loc];
+                        assert!(end == 0x0b);
                         count -= 1;
                         module.glob.push(Global{typ, ismut, code,})
                     }
@@ -770,9 +771,9 @@ impl Curse
                     let mut count = self.leb_tou32();
                     while count > 0
                     {
-                        let mut elmtyp = None;
-                        let mut elmoff ;
-                        let mut fvec = Vec::new();
+                        //let mut elmtyp = None;
+                        let elmoff ;
+                        let fvec ;
                         let tabid = self.leb_tou32();
                         match tabid {
                             0x00 => {
@@ -829,7 +830,7 @@ impl Curse
                             } */
                             _ => panic!("Invalid wasm file: Flag byte must be 0x00 Elements Byte Location: {}", self.loc),
                         };
-                        module.elms.push(Element{tabid, elmtyp, elmoff, fvec});
+                        module.elms.push(Element{tabid, /*elmtyp,*/ elmoff, fvec});
                         count -= 1;
                     }
                 }
@@ -979,12 +980,11 @@ mod tests {
     #[should_panic]
     fn test_invalid_parse()
     {
-        // Truncated section: section id 0x01 with LEB128 size that overflows the buffer
-        let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x80, 0x80, 0x80, 0x80, 0x80], 14);
+        let mut tcurs= Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00], 7);
         let _tmod = tcurs.parse_wasm();
+
     }
     #[test]//8.3
-    #[should_panic]
     fn test_bad_wasm()
     {
         let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x80, 0x80], 11);

@@ -1,9 +1,11 @@
 use core::panic;
 use super::wasm_module::*;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use serde::{Serialize, Deserialize};
+use std::process::{Command, ChildStdin, Stdio};
+use std::sync::{Arc, Mutex};
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum StackTypes
 {
@@ -21,14 +23,643 @@ pub struct StackCalls
     pub vars: Vec<StackTypes>,
 }
 #[derive(Clone, Serialize, Deserialize)]
+pub struct PFlags
+{
+    //I32
+    pub i32_eqz: bool,
+    pub i32_eq: bool,
+    pub i32_ne: bool,
+   //flow
+    pub unreachable: bool,
+    pub nop: bool,
+    pub block: bool,
+    pub pool: bool,
+    pub fi: bool,
+    pub esle: bool,
+    pub end: bool,
+    pub br: bool,
+    pub br_if: bool,
+    pub br_table: bool,
+    pub nruter: bool,
+    pub call: bool,
+    pub call_indirect: bool,
+    //Args
+    pub drop: bool,
+    pub select: bool,
+    //Vars
+    pub local_get: bool,
+    pub local_set: bool,
+    pub local_tee: bool,
+    pub global_get: bool,
+    pub global_set: bool,
+ 
+    //Mem
+    //LD
+    pub i32_load: bool,
+    pub i64_load: bool,
+    pub f32_load: bool,
+    pub f64_load: bool,
+    //I32
+    pub i32_load_8s: bool,
+    pub i32_load_8u: bool,
+    pub i32_load_16s: bool,
+    pub i32_load_16u: bool,
+    //I64
+    pub i64_load_8s: bool,
+    pub i64_load_8u: bool,
+    pub i64_load_16s: bool,
+    pub i64_load_16u: bool,
+    pub i64_load_32s: bool,
+    pub i64_load_32u: bool,
+    //STR
+    pub i32_store: bool,
+    pub i64_store: bool,
+    pub f32_store: bool,
+    pub f64_store: bool,
+    pub i32_store_8: bool,
+    pub i32_store_16: bool,
+    pub i64_store_8: bool,
+    pub i64_store_16: bool,
+    pub i64_store_32: bool,
+    pub memory_size: bool,
+    pub memory_grow: bool,
+    //Cons
+    pub i32_const: bool,
+    pub i64_const: bool,
+    pub f32_const: bool,
+    pub f64_const: bool,
+    //Comps    
+    pub i32_lts: bool,
+    pub i32_ltu: bool,
+    pub i32_gts: bool,
+    pub i32_gtu: bool,
+    pub i32_les: bool,
+    pub i32_leu: bool,
+    pub i32_ges: bool,
+    pub i32_geu: bool,
+    //I64
+    pub i64_eqz: bool,
+    pub i64_eq: bool,
+    pub i64_ne: bool,
+    pub i64_lts: bool,
+    pub i64_ltu: bool,
+    pub i64_gts: bool,
+    pub i64_gtu: bool,
+    pub i64_les: bool,
+    pub i64_leu: bool,
+    pub i64_ges: bool,
+    pub i64_geu: bool,
+    //F32
+    pub f32_wq: bool,
+    pub f32_ne: bool,
+    pub f32_lt: bool,
+    pub f32_gt: bool,
+    pub f32_le: bool,
+    pub f32_ge: bool,
+    //F64
+    pub f64_eq: bool,
+    pub f64_ne: bool,
+    pub f64_lt: bool,
+    pub f64_gt: bool,
+    pub f64_le: bool,
+    pub f64_ge: bool,
+    //Calcs
+    //I32
+    pub i32_clz: bool,
+    pub i32_ctz: bool,
+    pub i32_popcnt: bool,
+    pub i32_add: bool,
+    pub i32_sub: bool,
+    pub i32_mul: bool,
+    pub i32_divs: bool,
+    pub i32_divu: bool,
+    pub i32_rems: bool,
+    pub i32_remu: bool,
+    pub i32_and: bool,
+    pub i32_or: bool,
+    pub i32_xor: bool,
+    pub i32_shl: bool,
+    pub i32_shrs: bool,
+    pub i32_shru: bool,
+    pub i32_rotl: bool,
+    pub i32_rotr: bool,
+    //I64
+    pub i64_clz: bool,
+    pub i64_ctz: bool,
+    pub i64_popcnt: bool,
+    pub i64_add: bool,
+    pub i64_sub: bool,
+    pub i64_mul: bool,
+    pub i64_divs: bool,
+    pub i64_divu: bool,
+    pub i64_rems: bool,
+    pub i64_remu: bool,
+    pub i64_and: bool,
+    pub i64_or: bool,
+    pub i64_xor: bool,
+    pub i64_shl: bool,
+    pub i64_shrs: bool,
+    pub i64_shru: bool,
+    pub i64_rotl: bool,
+    pub i64_rotr: bool,
+    //FL
+    //F32
+    pub f32_abs: bool,
+    pub f32_neg: bool,
+    pub f32_ceil: bool,
+    pub f32_floor: bool,
+    pub f32_trunc: bool,
+    pub f32_nearest: bool,
+    pub f32_sqrt: bool,
+    pub f32_add: bool,
+    pub f32_sub: bool,
+    pub f32_mul: bool,
+    pub f32_div: bool,
+    pub f32_min: bool,
+    pub f32_max: bool,
+    pub f32_copysign: bool,
+    //F64
+    pub f64_abs: bool,
+    pub f64_neg: bool,
+    pub f64_ceil: bool,
+    pub f64_floor: bool,
+    pub f64_trunc: bool,
+    pub f64_nearest: bool,
+    pub f64_sqrt: bool,
+    pub f64_add: bool,
+    pub f64_sub: bool,
+    pub f64_mul: bool,
+    pub f64_div: bool,
+    pub f64_min: bool,
+    pub f64_max: bool,
+    pub f64_copysign: bool,
+    //tools
+    pub i32_wrap_i64: bool,
+    pub i32_trunc_f32s: bool,
+    pub i32_trunc_f32u: bool,
+    pub i32_trunc_f64s: bool,
+    pub i32_trunc_f64u: bool,
+    pub i64_extend_i32s: bool,
+    pub i64_extend_i32u: bool,
+    pub i64_trunc_f32s: bool,
+    pub i64_trunc_f32u: bool,
+    pub i64_trunc_f64s: bool,
+    pub i64_trunc_f64u: bool,
+    pub f32_convert_i32s: bool,
+    pub f32_convert_i32u: bool,
+    pub f32_convert_i64s: bool,
+    pub f32_convert_i64u: bool,
+    pub f32_demote_f64: bool,
+    pub f64_convert_i32s: bool,
+    pub f64_converti_32u: bool,
+    pub f64_convert_i64s: bool,
+    pub f64_convert_i64u: bool,
+    pub f64_promote_f32: bool,
+    pub i32_reinterpret_f32: bool,
+    pub i64_reinterpret_f64: bool,
+    pub f32_reinterpret_i32: bool,
+    pub f64_reinterpret_i64: bool
+}
+impl PFlags
+{
+    fn all_true(&mut self)
+    {
+        //I32
+        self.i32_eqz = true;
+        self.i32_eq = true;
+        self.i32_ne = true;
+        //flow
+        self.unreachable = true;
+        self.nop = true;
+        self.block = true;
+        self.pool = true;
+        self.fi = true;
+        self.esle = true;
+        self.end = true;
+        self.br = true;
+        self.br_if = true;
+        self.br_table = true;
+        self.nruter = true;
+        self.call = true;
+        self.call_indirect = true;
+        //Args
+        self.drop = true;
+        self.select = true;
+        //Vars
+        self.local_get = true;
+        self.local_set = true;
+        self.local_tee = true;
+        self.global_get = true;
+        self.global_set = true;
+
+        //Mem
+        //LD
+        self.i32_load = true;
+        self.i64_load = true;
+        self.f32_load = true;
+        self.f64_load = true;
+        //I32
+        self.i32_load_8s = true;
+        self.i32_load_8u = true; 
+        self.i32_load_16s = true;
+        self.i32_load_16u = true;
+        //I64
+        self.i64_load_8s = true;
+        self.i64_load_8u = true;
+        self.i64_load_16s = true;
+        self.i64_load_16u = true;
+        self.i64_load_32s = true;
+        self.i64_load_32u = true;
+        //STR
+        self.i32_store = true;
+        self.i64_store = true;
+        self.f32_store = true;
+        self.f64_store = true;
+        self.i32_store_8 = true;
+        self.i32_store_16 = true;
+        self.i64_store_8 = true;
+        self.i64_store_16 = true;
+        self.i64_store_32 = true;
+        self.memory_size = true;
+        self.memory_grow = true;
+        //Cons
+        self.i32_const = true;
+        self.i64_const = true;
+        self.f32_const = true;
+        self.f64_const = true;
+        //Comps    
+        self.i32_lts = true;
+        self.i32_ltu = true;
+        self.i32_gts = true;
+        self.i32_gtu = true;
+        self.i32_les = true;
+        self.i32_leu = true;
+        self.i32_ges = true;
+        self.i32_geu = true;
+        //I64
+        self.i64_eqz = true;
+        self.i64_eq = true;
+        self.i64_ne = true;
+        self.i64_lts = true;
+        self.i64_ltu = true;
+        self.i64_gts = true;
+        self.i64_gtu = true;
+        self.i64_les = true;
+        self.i64_leu = true;
+        self.i64_ges = true;
+        self.i64_geu = true;
+        //F32
+        self.f32_wq = true;
+        self.f32_ne = true;
+        self.f32_lt = true;
+        self.f32_gt = true;
+        self.f32_le = true;
+        self.f32_ge = true;
+        //F64
+        self.f64_eq = true;
+        self.f64_ne = true;
+        self.f64_lt = true;
+        self.f64_gt = true;
+        self.f64_le = true;
+        self.f64_ge = true;
+        //Calcs
+        //I32
+        self.i32_clz = true;
+        self.i32_ctz = true;
+        self.i32_popcnt = true;
+        self.i32_add = true;
+        self.i32_sub = true;
+        self.i32_mul = true;
+        self.i32_divs = true;
+        self.i32_divu = true;
+        self.i32_rems = true;
+        self.i32_remu = true;
+        self.i32_and = true;
+        self.i32_or = true;
+        self.i32_xor = true;
+        self.i32_shl = true;
+        self.i32_shrs = true;
+        self.i32_shru = true;
+        self.i32_rotl = true;
+        self.i32_rotr = true;
+        //I64
+        self.i64_clz = true;
+        self.i64_ctz = true;
+        self.i64_popcnt = true;
+        self.i64_add = true;
+        self.i64_sub = true;
+        self.i64_mul = true;
+        self.i64_divs = true;
+        self.i64_divu = true;
+        self.i64_rems = true;
+        self.i64_remu = true;
+        self.i64_and = true;
+        self.i64_or = true;
+        self.i64_xor = true;
+        self.i64_shl = true;
+        self.i64_shrs = true;
+        self.i64_shru = true;
+        self.i64_rotl = true;
+        self.i64_rotr = true;
+        //FL
+        //F32
+        self.f32_abs = true;
+        self.f32_neg = true;
+        self.f32_ceil = true;
+        self.f32_floor = true;
+        self.f32_trunc = true;
+        self.f32_nearest = true;
+        self.f32_sqrt = true;
+        self.f32_add = true;
+        self.f32_sub = true;
+        self.f32_mul = true;
+        self.f32_div = true;
+        self.f32_min = true;
+        self.f32_max = true;
+        self.f32_copysign = true;
+        //F64
+        self.f64_abs = true;
+        self.f64_neg = true;
+        self.f64_ceil = true;
+        self.f64_floor = true;
+        self.f64_trunc = true;
+        self.f64_nearest = true;
+        self.f64_sqrt = true;
+        self.f64_add = true;
+        self.f64_sub = true;
+        self.f64_mul = true;
+        self.f64_div = true;
+        self.f64_min = true;
+        self.f64_max = true;
+        self.f64_copysign = true;
+        //tools
+        self.i32_wrap_i64 = true;
+        self.i32_trunc_f32s = true;
+        self.i32_trunc_f32u = true;
+        self.i32_trunc_f64s = true;
+        self.i32_trunc_f64u = true;
+        self.i64_extend_i32s = true;
+        self.i64_extend_i32u = true;
+        self.i64_trunc_f32s = true;
+        self.i64_trunc_f32u = true;
+        self.i64_trunc_f64s = true;
+        self.i64_trunc_f64u = true;
+        self.f32_convert_i32s = true;
+        self.f32_convert_i32u = true;
+        self.f32_convert_i64s = true;
+        self.f32_convert_i64u = true;
+        self.f32_demote_f64 = true;
+        self.f64_convert_i32s = true;
+        self.f64_converti_32u = true;
+        self.f64_convert_i64s = true;
+        self.f64_convert_i64u = true;
+        self.f64_promote_f32 = true;
+        self.i32_reinterpret_f32 = true;
+        self.i64_reinterpret_f64 = true;
+        self.f32_reinterpret_i32 = true;
+        self.f64_reinterpret_i64 = true;
+    }
+    fn all_false(&mut self)
+    {
+        //I32
+        self.i32_eqz = false;
+        self.i32_eq = false;
+        self.i32_ne = false;
+        //flow
+        self.unreachable = false;
+        self.nop = false;
+        self.block = false;
+        self.pool = false;
+        self.fi = false;
+        self.esle = false;
+        self.end = false;
+        self.br = false;
+        self.br_if = false;
+        self.br_table = false;
+        self.nruter = false;
+        self.call = false;
+        self.call_indirect = false;
+        //Args
+        self.drop = false;
+        self.select = false;
+        //Vars
+        self.local_get = false;
+        self.local_set = false;
+        self.local_tee = false;
+        self.global_get = false;
+        self.global_set = false;
+
+        //Mem
+        //LD
+        self.i32_load = false;
+        self.i64_load = false;
+        self.f32_load = false;
+        self.f64_load = false;
+        //I32
+        self.i32_load_8s = false;
+        self.i32_load_8u = false; 
+        self.i32_load_16s = false;
+        self.i32_load_16u = false;
+        //I64
+        self.i64_load_8s = false;
+        self.i64_load_8u = false;
+        self.i64_load_16s = false;
+        self.i64_load_16u = false;
+        self.i64_load_32s = false;
+        self.i64_load_32u = false;
+        //STR
+        self.i32_store = false;
+        self.i64_store = false;
+        self.f32_store = false;
+        self.f64_store = false;
+        self.i32_store_8 = false;
+        self.i32_store_16 = false;
+        self.i64_store_8 = false;
+        self.i64_store_16 = false;
+        self.i64_store_32 = false;
+        self.memory_size = false;
+        self.memory_grow = false;
+        //Cons
+        self.i32_const = false;
+        self.i64_const = false;
+        self.f32_const = false;
+        self.f64_const = false;
+        //Comps    
+        self.i32_lts = false;
+        self.i32_ltu = false;
+        self.i32_gts = false;
+        self.i32_gtu = false;
+        self.i32_les = false;
+        self.i32_leu = false;
+        self.i32_ges = false;
+        self.i32_geu = false;
+        //I64
+        self.i64_eqz = false;
+        self.i64_eq = false;
+        self.i64_ne = false;
+        self.i64_lts = false;
+        self.i64_ltu = false;
+        self.i64_gts = false;
+        self.i64_gtu = false;
+        self.i64_les = false;
+        self.i64_leu = false;
+        self.i64_ges = false;
+        self.i64_geu = false;
+        //F32
+        self.f32_wq = false;
+        self.f32_ne = false;
+        self.f32_lt = false;
+        self.f32_gt = false;
+        self.f32_le = false;
+        self.f32_ge = false;
+        //F64
+        self.f64_eq = false;
+        self.f64_ne = false;
+        self.f64_lt = false;
+        self.f64_gt = false;
+        self.f64_le = false;
+        self.f64_ge = false;
+        //Calcs
+        //I32
+        self.i32_clz = false;
+        self.i32_ctz = false;
+        self.i32_popcnt = false;
+        self.i32_add = false;
+        self.i32_sub = false;
+        self.i32_mul = false;
+        self.i32_divs = false;
+        self.i32_divu = false;
+        self.i32_rems = false;
+        self.i32_remu = false;
+        self.i32_and = false;
+        self.i32_or = false;
+        self.i32_xor = false;
+        self.i32_shl = false;
+        self.i32_shrs = false;
+        self.i32_shru = false;
+        self.i32_rotl = false;
+        self.i32_rotr = false;
+        //I64
+        self.i64_clz = false;
+        self.i64_ctz = false;
+        self.i64_popcnt = false;
+        self.i64_add = false;
+        self.i64_sub = false;
+        self.i64_mul = false;
+        self.i64_divs = false;
+        self.i64_divu = false;
+        self.i64_rems = false;
+        self.i64_remu = false;
+        self.i64_and = false;
+        self.i64_or = false;
+        self.i64_xor = false;
+        self.i64_shl = false;
+        self.i64_shrs = false;
+        self.i64_shru = false;
+        self.i64_rotl = false;
+        self.i64_rotr = false;
+        //FL
+        //F32
+        self.f32_abs = false;
+        self.f32_neg = false;
+        self.f32_ceil = false;
+        self.f32_floor = false;
+        self.f32_trunc = false;
+        self.f32_nearest = false;
+        self.f32_sqrt = false;
+        self.f32_add = false;
+        self.f32_sub = false;
+        self.f32_mul = false;
+        self.f32_div = false;
+        self.f32_min = false;
+        self.f32_max = false;
+        self.f32_copysign = false;
+        //F64
+        self.f64_abs = false;
+        self.f64_neg = false;
+        self.f64_ceil = false;
+        self.f64_floor = false;
+        self.f64_trunc = false;
+        self.f64_nearest = false;
+        self.f64_sqrt = false;
+        self.f64_add = false;
+        self.f64_sub = false;
+        self.f64_mul = false;
+        self.f64_div = false;
+        self.f64_min = false;
+        self.f64_max = false;
+        self.f64_copysign = false;
+        //tools
+        self.i32_wrap_i64 = false;
+        self.i32_trunc_f32s = false;
+        self.i32_trunc_f32u = false;
+        self.i32_trunc_f64s = false;
+        self.i32_trunc_f64u = false;
+        self.i64_extend_i32s = false;
+        self.i64_extend_i32u = false;
+        self.i64_trunc_f32s = false;
+        self.i64_trunc_f32u = false;
+        self.i64_trunc_f64s = false;
+        self.i64_trunc_f64u = false;
+        self.f32_convert_i32s = false;
+        self.f32_convert_i32u = false;
+        self.f32_convert_i64s = false;
+        self.f32_convert_i64u = false;
+        self.f32_demote_f64 = false;
+        self.f64_convert_i32s = false;
+        self.f64_converti_32u = false;
+        self.f64_convert_i64s = false;
+        self.f64_convert_i64u = false;
+        self.f64_promote_f32 = false;
+        self.i32_reinterpret_f32 = false;
+        self.i64_reinterpret_f64 = false;
+        self.f32_reinterpret_i32 = false;
+        self.f64_reinterpret_i64 = false;
+    }
+    pub fn new() -> PFlags
+    {
+        PFlags {i32_eqz: false, i32_eq: false, i32_ne: false, unreachable: false, nop: false, 
+            block: false, pool: false, fi: false, esle: false, end: false, br: false, br_if: false,
+            br_table: false, nruter: false, call: false, call_indirect: false, drop: false, 
+            select: false, local_get: false, local_set: false, local_tee: false, global_get: false, 
+            global_set: false, i32_load: false, i64_load: false, f32_load: false, f64_load: false, 
+            i32_load_8s: false, i32_load_8u: false, i32_load_16s: false, i32_load_16u: false, i64_load_8s: false, 
+            i64_load_8u: false, i64_load_16s: false, i64_load_16u: false, i64_load_32s: false, i64_load_32u: false, 
+            i32_store: false, i64_store: false, f32_store: false, f64_store: false, i32_store_8: false, i32_store_16: false, 
+            i64_store_8: false, i64_store_16: false, i64_store_32: false, memory_size: false, memory_grow: false, i32_const: false, 
+            i64_const: false, f32_const: false, f64_const: false, i32_lts: false, i32_ltu: false, i32_gts: false, i32_gtu: false, 
+            i32_les: false, i32_leu: false, i32_ges: false, i32_geu: false, i64_eqz: false, i64_eq: false, i64_ne: false, i64_lts: false, 
+            i64_ltu: false, i64_gts: false, i64_gtu: false, i64_les: false, i64_leu: false, i64_ges: false, i64_geu: false, f32_wq: false, 
+            f32_ne: false, f32_lt: false, f32_gt: false, f32_le: false, f32_ge: false, f64_eq: false, f64_ne: false, f64_lt: false, 
+            f64_gt: false, f64_le: false, f64_ge: false, i32_clz: false, i32_ctz: false, i32_popcnt: false, i32_add: false, i32_sub: false, 
+            i32_mul: false, i32_divs: false, i32_divu: false, i32_rems: false, i32_remu: false, i32_and: false, i32_or: false, i32_xor: false, 
+            i32_shl: false, i32_shrs: false, i32_shru: false, i32_rotl: false, i32_rotr: false, i64_clz: false, i64_ctz: false, i64_popcnt: false, 
+            i64_add: false, i64_sub: false, i64_mul: false, i64_divs: false, i64_divu: false, i64_rems: false, i64_remu: false, i64_and: false, 
+            i64_or: false, i64_xor: false, i64_shl: false, i64_shrs: false, i64_shru: false, i64_rotl: false, i64_rotr: false, f32_abs: false, 
+            f32_neg: false, f32_ceil: false, f32_floor: false, f32_trunc: false, f32_nearest: false, f32_sqrt: false, f32_add: false, 
+            f32_sub: false, f32_mul: false, f32_div: false, f32_min: false, f32_max: false, f32_copysign: false, f64_abs: false, f64_neg: false, 
+            f64_ceil: false, f64_floor: false, f64_trunc: false, f64_nearest: false, f64_sqrt: false, f64_add: false, f64_sub: false, 
+            f64_mul: false, f64_div: false, f64_min: false, f64_max: false, f64_copysign: false, i32_wrap_i64: false, i32_trunc_f32s: false, 
+            i32_trunc_f32u: false, i32_trunc_f64s: false, i32_trunc_f64u: false, i64_extend_i32s: false, i64_extend_i32u: false, 
+            i64_trunc_f32s: false, i64_trunc_f32u: false, i64_trunc_f64s: false, i64_trunc_f64u: false, f32_convert_i32s: false, 
+            f32_convert_i32u: false, f32_convert_i64s: false, f32_convert_i64u: false, f32_demote_f64: false, f64_convert_i32s: false, 
+            f64_converti_32u: false, f64_convert_i64s: false, f64_convert_i64u: false, f64_promote_f32: false, i32_reinterpret_f32: false, 
+            i64_reinterpret_f64: false, f32_reinterpret_i32: false, f64_reinterpret_i64: false}
+    }
+}
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GlobsGlobal
 {
     typ: StackTypes, 
     ismut: bool,
-}
+} 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Runtime
 {
+    pub fpflags: PFlags,
+    pub spflags: PFlags,
+    //#[serde(skip)]
+    //pub terminal: Option<Arc<Mutex<ChildStdin>>>,
     pub paused: bool,
     pub incount: usize,
     pub ended: bool,
@@ -46,10 +677,8 @@ pub struct Runtime
     pub flow_stack: Vec<FlowCode>,
     pub globs: Vec<GlobsGlobal>,
     pub functab: Vec<Option<u32>>,
-    // Execution metrics (merged from original)
-    pub instruction_count: u64,
-    pub syscall_count: u64,
-    pub stdout_log: Vec<String>,
+    pub stdout_log: Vec<String>
+
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum FlowType
@@ -116,7 +745,7 @@ impl Runtime
         let mut globs: Vec<GlobsGlobal> = Vec::new(); 
         for global in &module.glob 
         {
-            let mut gval: StackTypes = match global.code
+            let gval: StackTypes = match global.code
             {
                 Code::I32Const(cons) => StackTypes::I32(cons),
                 Code::I64Const(cons) => StackTypes::I64(cons),
@@ -147,7 +776,7 @@ impl Runtime
                 off +=1;
             }
         }
-        Runtime{paused: false, incount: 0, ended: false, priority: 1, flog: false, clog: false, limflag: false, limit: 0, module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs, instruction_count: 0, syscall_count: 0, stdout_log: Vec::new()}
+        Runtime{stdout_log:Vec::new(), fpflags: PFlags::new(), spflags: PFlags::new(), /*terminal: None,*/ paused: false, incount: 0, ended: false, priority: 1, flog: false, clog: false, limflag: false, limit: 0, module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs,}
     } 
     pub fn pop_run(&mut self)
     {
@@ -235,7 +864,29 @@ impl Runtime
         }
         if self.clog
         {
-
+            /*if self.terminal.is_none()  
+            {
+                if let Ok(mut term) = Command::new("wt").arg("cmd").stdin(Stdio::piped()).spawn()
+                {
+                    self.terminal = Some(Arc::new(Mutex::new(term.stdin.take().expect("Terminal Child Process error"))));
+                }
+            }
+            else if self.terminal.is_some() && let Some(tpipe) = &self.terminal 
+            {
+                if let Ok(mut pip) = tpipe.lock() 
+                {
+                    if let Err(_err) = writeln!(pip, "{logg}\n")
+                    {
+                        println!("Could not write to terminal Runtime: {}", self.module.name);
+                    }
+                    pip.flush().unwrap();
+                }
+            }
+        
+            else{
+                println!("Terminal could not be created Runtime: {}", self.module.name);
+                return;
+                */
         }
     }
     pub fn run_prog(&mut self)
@@ -249,7 +900,6 @@ impl Runtime
         let call = self.call_stack.last_mut().unwrap();
         let code = call.code[call.loc].clone();
         call.loc += 1;
-        self.instruction_count += 1;
         match code
         {
             //flow
@@ -257,7 +907,7 @@ impl Runtime
             Code::Nop => (), //instruction is a placeholder in wasm
             Code::Block(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::Block, break_tar: call.code.len() - 1, size: self.value_stack.len(), ret_typ: typ}),
             Code::Loop(typ) => self.flow_stack.push(FlowCode{ flow_type: FlowType::Loop, break_tar: call.code.len(), size: self.value_stack.len(), ret_typ: typ,}),    
-            //Code::If(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::If, break_tar: , size: (), ret_typ: () }),
+            //Code::If(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::If, break_tar: , size: false, ret_typ: false }),
 //                Code::Else => //log::info!("Else"),
             Code::Br(us) => 
             {
@@ -308,65 +958,7 @@ impl Runtime
             Code::Call(ind) => 
             {
                 lstring = format!("{}. Call {}", self.incount, ind);
-                // Check if this is an import call (ABI syscall)
-                if (ind as u32) < self.module.imports {
-                    let imp_name = self.module.imps[ind as usize].impname.clone();
-                    match imp_name.as_str() {
-                        "host_log" => {
-                            // ABI: host_log(ptr: i32, len: i32)
-                            let len = match self.value_stack.pop() {
-                                Some(StackTypes::I32(v)) => v as usize,
-                                _ => 0,
-                            };
-                            let ptr = match self.value_stack.pop() {
-                                Some(StackTypes::I32(v)) => v as usize,
-                                _ => 0,
-                            };
-                            if ptr + len <= self.mem.len() {
-                                let msg = String::from_utf8_lossy(&self.mem[ptr..ptr + len]).to_string();
-                                println!("[WASM LOG] {}", msg);
-                                self.stdout_log.push(msg);
-                            } else {
-                                self.stdout_log.push("[host_log: out of bounds]".to_string());
-                            }
-                            self.syscall_count += 1;
-                        }
-                        "read_sensor" => {
-                            // ABI: read_sensor(sensor_id: i32) -> i32
-                            let _sensor_id = match self.value_stack.pop() {
-                                Some(StackTypes::I32(v)) => v,
-                                _ => 0,
-                            };
-                            self.value_stack.push(StackTypes::I32(42));
-                            self.syscall_count += 1;
-                        }
-                        "send_alert" => {
-                            // ABI: send_alert(code: i32)
-                            let code = match self.value_stack.pop() {
-                                Some(StackTypes::I32(v)) => v,
-                                _ => 0,
-                            };
-                            let msg = format!("[ALERT] code={}", code);
-                            println!("{}", msg);
-                            self.stdout_log.push(msg);
-                            self.syscall_count += 1;
-                        }
-                        _ => {
-                            // Unknown import — pop args and push 0 if return expected
-                            let typind = self.module.fnid[ind as usize] as usize;
-                            let typ = &self.module.typs[typind];
-                            for _ in 0..typ.args.len() {
-                                self.value_stack.pop();
-                            }
-                            if !typ.turns.is_empty() {
-                                self.value_stack.push(StackTypes::I32(0));
-                            }
-                            self.syscall_count += 1;
-                        }
-                    }
-                    return;
-                }
-                // Regular function call
+                //log::info!("Function Call, ID: {}", ind);
                 let typind = self.module.fnid[ind as usize] as usize;
                 let typ = &self.module.typs[typind];
                 let mut cvec = Vec::new();
@@ -377,6 +969,7 @@ impl Runtime
                     itt += 1;
                 }
                 cvec.reverse();
+                //make call
                 if typ.args.len() != cvec.len(){panic!("Call vec length err");}
                 let func = &self.module.fcce[(ind - self.module.imports) as usize];
                 let fcode = &func.code;
@@ -455,9 +1048,9 @@ impl Runtime
             },
             Code::GlobalGet(loc) =>
             {
-                let mut loc = loc as usize;
+                let loc = loc as usize;
                 assert!(loc <= self.globs.len());
-                let to_stack = self.globs[loc as usize].typ.clone();
+                let to_stack = self.globs[loc].typ.clone();
                 lstring = format!("{}. Global Get({}) {:?}", self.incount, loc, to_stack);
                 self.value_stack.push(to_stack);
                 //log::info!("Global Get: Index: {}, Value: {}", loc, to_stack);
@@ -2492,7 +3085,8 @@ impl Runtime
             },
             _ => panic!("Unsupported Type"),
         }
-        self.alogger(lstring);
+        self.alogger(lstring.clone());
+        self.stdout_log.push(lstring.clone());
         /*if call.loc >= call.code.len()
         {
             let turn = self.value_stack.pop();

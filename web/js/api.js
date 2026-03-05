@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8080';
+const API_BASE = '/v1';
 
 const API = {
     async getStats() {
