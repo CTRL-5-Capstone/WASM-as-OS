@@ -356,3 +356,50 @@ pub enum Code
     F64ReinterpretI64,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+
+    #[test]
+    fn test_vector_creation() {
+        let data: Vec<u8> = Vec::new();
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn test_vector_push() {
+        let mut data = Vec::new();
+        data.push(1);
+        assert_eq!(data.len(), 1);
+    }
+
+    #[test]
+    fn test_vector_multiple_push() {
+        let mut data = Vec::new();
+
+        data.push(10);
+        data.push(20);
+        data.push(30);
+
+        assert_eq!(data.len(), 3);
+    }
+
+    #[test]
+    fn test_vector_pop() {
+        let mut data = vec![1,2,3];
+
+        let val = data.pop();
+
+        assert_eq!(val, Some(3));
+    }
+
+    #[test]
+    fn test_vector_clear() {
+        let mut data = vec![1,2,3];
+
+        data.clear();
+
+        assert!(data.is_empty());
+    }
+}

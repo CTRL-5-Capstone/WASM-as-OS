@@ -50,3 +50,4 @@ impl WasmFile
         self.running = false;
     }
 }
+
