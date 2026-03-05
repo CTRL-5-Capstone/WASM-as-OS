@@ -908,39 +908,55 @@ impl Runtime
             Code::Block(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::Block, break_tar: call.code.len() - 1, size: self.value_stack.len(), ret_typ: typ}),
             Code::Loop(typ) => self.flow_stack.push(FlowCode{ flow_type: FlowType::Loop, break_tar: call.code.len(), size: self.value_stack.len(), ret_typ: typ,}),    
             //Code::If(typ) => self.flow_stack.push(FlowCode{flow_type: FlowType::If, break_tar: , size: false, ret_typ: false }),
-//                Code::Else => //log::info!("Else"),
-            Code::Br(us) => 
-            {
-                while self.flow_stack.len() >= us as usize
-                {
-                    self.flow_stack.pop();
-                }
-
+         Code::If(typ) => {
+    match self.value_stack.pop() {
+        Some(StackTypes::I32(cond)) => {
+            if cond != 0 {
+                self.flow_stack.push(FlowCode {
+                    flow_type: FlowType::If,
+                    break_tar: call.code.len() - 1,
+                    size: self.value_stack.len(),
+                    ret_typ: typ
+                });
             }
-            Code::BrIf(us) => 
-            {
-                match self.value_stack.pop()
+        }
+        _ => panic!("Expected I32 condition"),
+    }
+},
+    Code::Else => {
+        if let Some(flow) = self.flow_stack.last(){
+    if let FlowType::If = flow.flow_type{
+        call.loc = flow.break_tar;
+    }
+}
+},
+            Code::Br(us) => {
+                let idx = self.flow_stack.len() -1 - us as usize;
+                let target = self.flow_stack[idx].break_tar;
+
+                self.flow_stack.truncate(idx);
+
+                call.loc = target;
+            }
+            
+            Code::BrIf(us) => {
+           match self.value_stack.pop() {
+            Some(StackTypes::I32(boo)) => {
+                if boo != 0
                 {
-                    Some(StackTypes::I32(boo)) =>
-                    {
-                        if boo == 0
-                        {
-                            
-                        }
-                        else 
-                        {
-                            while self.flow_stack.len() >= us as usize
-                            {
-                                self.flow_stack.pop();
-                            }
-                        }
-                    }
-                    _ => panic!("Expected I32 from stack BrIF"),
+                    let idx = self.flow_stack.len() -1 - us as usize;
+                    let target = self.flow_stack[idx].break_tar;
+
+                    self.flow_stack.truncate(idx);
+
+                    call.loc = target;
                 }
-            },
+            }
+            _=> panic! ("Expected I32 from stack BrIF"),
+           }
+        },
             //Code::BrTable => (),
-            Code::Return | Code::End =>
-            {
+            Code::Return |  Code::End => {
                 let turn = self.value_stack.pop();
                 self.call_stack.pop();
                 if self.call_stack.is_empty(){
@@ -950,7 +966,7 @@ impl Runtime
                 }
                 if let Some(val) = turn
                 {
-                    //log::info!("Return: {}", val);
+                    //log::info!("Return: {}", val); 
                     self.value_stack.push(val);
                 }
 
