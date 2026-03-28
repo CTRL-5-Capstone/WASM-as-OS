@@ -1,14 +1,21 @@
-# verify-local-dev.ps1 - Local smoke test (backend only)
+# verify-local-dev.ps1 - End-to-end local integration smoke test (Windows PowerShell)
+#
+# Validates:
+# - Backend health/metrics/API (direct)
+# - Frontend pages (Next dev)
+# - Frontend -> backend rewrites (proxy)
 #
 # Usage:
 #   .\scripts\verify-local-dev.ps1
-#   .\scripts\verify-local-dev.ps1 -BackendUrl http://127.0.0.1:8080
+#   .\scripts\verify-local-dev.ps1 -FrontendUrl http://127.0.0.1:3001 -BackendUrl http://127.0.0.1:8080
 
 param(
-    [string]$BackendUrl = "http://127.0.0.1:8080"
+    [string]$FrontendUrl = "http://127.0.0.1:3001",
+    [string]$BackendUrl  = "http://127.0.0.1:8080"
 )
 
-$backend = $BackendUrl.TrimEnd('/')
+$frontend = $FrontendUrl.TrimEnd('/')
+$backend  = $BackendUrl.TrimEnd('/')
 
 $script:Pass = 0
 $script:Fail = 0
@@ -24,22 +31,37 @@ function Invoke-Check {
         if ($BodyContains -and -not $resp.Content.Contains($BodyContains)) { throw "body missing '$BodyContains'" }
         Write-Host "  v  $Label -> HTTP $code" -ForegroundColor Green
         $script:Pass++
+        return $resp
     } catch {
         Write-Host "  x  $Label -> $($_.Exception.Message)" -ForegroundColor Red
         $script:Fail++
+        return $null
     }
 }
 
 Write-Host "";
 Write-Host "======================================================" -ForegroundColor Cyan
-Write-Host "  WasmOS Local Verification" -ForegroundColor Cyan
+Write-Host "  WasmOS Local Integration Verification" -ForegroundColor Cyan
+Write-Host "  Frontend: $frontend" -ForegroundColor Cyan
 Write-Host "  Backend:  $backend" -ForegroundColor Cyan
 Write-Host "======================================================" -ForegroundColor Cyan
 Write-Host ""
 
-Invoke-Check "GET /health/live"  "$backend/health/live"  200
-Invoke-Check "GET /health/ready" "$backend/health/ready" 200
-Invoke-Check "GET /metrics"      "$backend/metrics"      200 "# HELP"
+Write-Host "-- 1. Backend (direct)" -ForegroundColor Yellow
+Invoke-Check "GET /health/live"  "$backend/health/live"  200 | Out-Null
+Invoke-Check "GET /health/ready" "$backend/health/ready" 200 | Out-Null
+Invoke-Check "GET /metrics"      "$backend/metrics"      200 "# HELP" | Out-Null
+Invoke-Check "GET /v1/tasks"     "$backend/v1/tasks"     200 | Out-Null
+
+Write-Host "";
+Write-Host "-- 2. Frontend (Next dev)" -ForegroundColor Yellow
+$pages = @("/", "/tasks/", "/terminal/", "/metrics/", "/analytics/", "/audit/")
+foreach ($p in $pages) { Invoke-Check "GET $p" "$frontend$p" 200 | Out-Null }
+
+Write-Host "";
+Write-Host "-- 3. Frontend -> Backend Proxy" -ForegroundColor Yellow
+Invoke-Check "GET /health/ready/ (via frontend)" "$frontend/health/ready/" 200 | Out-Null
+Invoke-Check "GET /v1/tasks/ (via frontend)"     "$frontend/v1/tasks/"     200 | Out-Null
 
 Write-Host "";
 Write-Host "======================================================" -ForegroundColor Cyan
