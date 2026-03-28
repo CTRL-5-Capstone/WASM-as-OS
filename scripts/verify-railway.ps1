@@ -56,6 +56,13 @@ Invoke-Check "GET /v1/tasks" "$Base/v1/tasks" 200 | Out-Null
 Invoke-Check "GET /v1/stats" "$Base/v1/stats" 200 | Out-Null
 
 Write-Host "";
+Write-Host "-- 4. Frontend pages" -ForegroundColor Yellow
+$pages = @("/", "/tasks/", "/terminal/", "/metrics/", "/analytics/", "/audit/")
+foreach ($page in $pages) {
+    Invoke-Check "GET $page" "$Base$page" 200 | Out-Null
+}
+
+Write-Host "";
 Write-Host "======================================================" -ForegroundColor Cyan
 $color = if ($Fail -eq 0) { "Green" } else { "Red" }
 Write-Host "  Results: $Pass passed / $Fail failed / $Total total" -ForegroundColor $color
