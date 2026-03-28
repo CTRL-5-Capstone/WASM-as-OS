@@ -19,16 +19,19 @@ $script:Fail  = 0
 $script:Total = 0
 
 function Invoke-Check {
-    param([string]$Label, [string]$Url, [int]$ExpectedStatus = 200)
+    param([string]$Label, [string]$Url, [int]$ExpectedStatus = 200, [string]$BodyContains = "")
     $script:Total++
     try {
         $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 15 -ErrorAction Stop
         if ($resp.StatusCode -ne $ExpectedStatus) { throw "expected HTTP $ExpectedStatus, got $($resp.StatusCode)" }
+        if ($BodyContains -and -not $resp.Content.Contains($BodyContains)) { throw "body missing '$BodyContains'" }
         Write-Host "  v  $Label -> HTTP $($resp.StatusCode)" -ForegroundColor Green
         $script:Pass++
+        return $resp
     } catch {
         Write-Host "  x  $Label -> $($_.Exception.Message)" -ForegroundColor Red
         $script:Fail++
+        return $null
     }
 }
 
@@ -40,8 +43,17 @@ Write-Host "======================================================" -ForegroundC
 Write-Host ""
 
 Write-Host "-- 1. Health" -ForegroundColor Yellow
-Invoke-Check "GET /health/live"  "$Base/health/live"  200
-Invoke-Check "GET /health/ready" "$Base/health/ready" 200
+Invoke-Check "GET /health/live"  "$Base/health/live"  200 | Out-Null
+Invoke-Check "GET /health/ready" "$Base/health/ready" 200 | Out-Null
+
+Write-Host "";
+Write-Host "-- 2. Metrics" -ForegroundColor Yellow
+Invoke-Check "GET /metrics" "$Base/metrics" 200 "# HELP" | Out-Null
+
+Write-Host "";
+Write-Host "-- 3. API" -ForegroundColor Yellow
+Invoke-Check "GET /v1/tasks" "$Base/v1/tasks" 200 | Out-Null
+Invoke-Check "GET /v1/stats" "$Base/v1/stats" 200 | Out-Null
 
 Write-Host "";
 Write-Host "======================================================" -ForegroundColor Cyan
