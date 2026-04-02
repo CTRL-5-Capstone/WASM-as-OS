@@ -1,0 +1,8 @@
+# k8s/namespace.yaml — Isolate WasmOS resources in their own namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wasmos
+  labels:
+    name: wasmos
+    app.kubernetes.io/name: wasmos

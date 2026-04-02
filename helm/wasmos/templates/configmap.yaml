@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "wasmos.fullname" . }}-config
+  labels:
+    {{- include "wasmos.labels" . | nindent 4 }}
+data:
+  log-level: {{ .Values.config.logging.level | quote }}
+  max-wasm-size-mb: {{ .Values.config.limits.maxWasmSizeMb | quote }}
+  execution-timeout-secs: {{ .Values.config.limits.executionTimeoutSecs | quote }}
+  max-concurrent-tasks: {{ .Values.config.limits.maxConcurrentTasks | quote }}

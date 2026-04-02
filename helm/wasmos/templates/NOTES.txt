@@ -1,0 +1,37 @@
+🚀 WasmOS has been deployed!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Release:   {{ .Release.Name }}
+  Namespace: {{ .Release.Namespace }}
+  Version:   {{ include "wasmos.imageTag" . }}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Get the application URL:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+   https://{{ .host }}
+{{- end }}
+{{- else if eq .Values.service.type "LoadBalancer" }}
+   export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "wasmos.fullname" . }} \
+     --template "{{ "{{" }}range (index .status.loadBalancer.ingress 0){{ "}}" }}{{ "{{" }}.{{ "}}" }}{{ "{{" }}end{{ "}}" }}")
+   echo "http://$SERVICE_IP:{{ .Values.service.port }}"
+{{- else if eq .Values.service.type "ClusterIP" }}
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "wasmos.fullname" . }} 8080:{{ .Values.service.port }}
+   echo "Visit http://127.0.0.1:8080"
+{{- end }}
+
+2. Check health:
+   curl http://<host>/health/live
+   curl http://<host>/health/ready
+
+3. View logs:
+   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "wasmos.name" . }} --tail=50 -f
+
+4. Run a quick smoke test:
+   kubectl run wasmos-smoke --image=curlimages/curl --restart=Never --rm -it -- \
+     curl http://{{ include "wasmos.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local/health/live
+
+⚠️  Remember to create the database-url and jwt-secret before deploying to production:
+   kubectl create secret generic {{ include "wasmos.fullname" . }}-secrets \
+     --from-literal=database-url='postgresql://user:pass@host:5432/wasmos' \
+     --from-literal=jwt-secret='<min-32-char-random-string>'

@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wasmos.fullname" . }}
+  labels:
+    {{- include "wasmos.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "wasmos.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "wasmos.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "wasmos.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ include "wasmos.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.server.port }}
+              protocol: TCP
+          env:
+            - name: WASMOS__SERVER__HOST
+              value: {{ .Values.config.server.host | quote }}
+            - name: WASMOS__SERVER__PORT
+              value: {{ .Values.config.server.port | quote }}
+            - name: WASMOS__SERVER__WORKERS
+              value: {{ .Values.config.server.workers | quote }}
+            - name: WASMOS__LOGGING__LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "wasmos.fullname" . }}-config
+                  key: log-level
+            - name: WASMOS__LOGGING__FORMAT
+              value: {{ .Values.config.logging.format | quote }}
+            - name: WASMOS__DATABASE__URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "wasmos.fullname" . }}-secrets
+                  key: database-url
+            - name: WASMOS__SECURITY__JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "wasmos.fullname" . }}-secrets
+                  key: jwt-secret
+            - name: WASMOS__LIMITS__MAX_WASM_SIZE_MB
+              value: {{ .Values.config.limits.maxWasmSizeMb | quote }}
+            - name: WASMOS__LIMITS__MAX_MEMORY_MB
+              value: {{ .Values.config.limits.maxMemoryMb | quote }}
+            - name: WASMOS__LIMITS__EXECUTION_TIMEOUT_SECS
+              value: {{ .Values.config.limits.executionTimeoutSecs | quote }}
+            - name: WASMOS__LIMITS__MAX_INSTRUCTIONS
+              value: {{ .Values.config.limits.maxInstructions | quote }}
+            - name: WASMOS__LIMITS__MAX_CONCURRENT_TASKS
+              value: {{ .Values.config.limits.maxConcurrentTasks | quote }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: wasm-storage
+              mountPath: {{ .Values.persistence.mountPath }}
+      volumes:
+        - name: wasm-storage
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "wasmos.fullname" . }}-pvc
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

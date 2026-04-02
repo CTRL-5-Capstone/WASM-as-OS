@@ -1,0 +1,17 @@
+apiVersion: v2
+name: wasmos
+description: WasmOS — WebAssembly Execution Runtime with multi-tenant scheduling and observability
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - wasm
+  - webassembly
+  - runtime
+  - sandbox
+home: https://github.com/your-org/wasmos
+sources:
+  - https://github.com/your-org/wasmos
+maintainers:
+  - name: WasmOS Team
+    email: team@wasmos.io

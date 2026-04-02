@@ -1,0 +1,159 @@
+# Default values for wasmos Helm chart.
+# Override with: helm install wasmos ./helm/wasmos -f custom-values.yaml
+
+# ─── Replica / scaling ───────────────────────────────────────────────
+replicaCount: 2
+
+# ─── Image ───────────────────────────────────────────────────────────
+image:
+  repository: wasmos
+  pullPolicy: IfNotPresent
+  # Overrides the chart appVersion when set
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ─── Service account ─────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+# ─── Pod annotations / labels ────────────────────────────────────────
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# ─── Service ─────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# ─── Ingress ─────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: wasmos.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: wasmos-tls
+      hosts:
+        - wasmos.example.com
+
+# ─── Resources ───────────────────────────────────────────────────────
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# ─── Autoscaling ─────────────────────────────────────────────────────
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# ─── Persistence ─────────────────────────────────────────────────────
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  mountPath: /app/wasm_files
+
+# ─── Application config ──────────────────────────────────────────────
+config:
+  server:
+    host: "0.0.0.0"
+    port: 8080
+    workers: 4
+  logging:
+    level: "info"
+    format: "json"
+  limits:
+    maxWasmSizeMb: 50
+    maxMemoryMb: 128
+    executionTimeoutSecs: 30
+    maxInstructions: 10000000
+    maxConcurrentTasks: 100
+
+# ─── Secrets (set at deploy time — do NOT commit real values) ────────
+secrets:
+  # Supply via --set or a sealed secret
+  databaseUrl: ""
+  jwtSecret: ""
+
+# ─── External PostgreSQL ─────────────────────────────────────────────
+postgresql:
+  # Set to true to deploy a bundled PostgreSQL (for dev/testing only)
+  enabled: false
+  auth:
+    database: wasmos
+    username: wasmos
+    password: changeme
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+# ─── Pod disruption budget ───────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ─── Network policy ──────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+
+# ─── Probes ──────────────────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# ─── Node selection / affinity ───────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}

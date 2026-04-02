@@ -1,0 +1,13 @@
+# k8s/pdb.yaml — PodDisruptionBudget
+# Ensures at least 2 backend replicas are always available during
+# voluntary disruptions (node drains, rolling upgrades, etc.)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: wasmos-pdb
+  namespace: wasmos
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: wasmos

@@ -1,0 +1,185 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wasmos
+  labels:
+    app: wasmos
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: wasmos
+  template:
+    metadata:
+      labels:
+        app: wasmos
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: wasmos
+        image: wasmos:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: WASMOS__SERVER__HOST
+          value: "0.0.0.0"
+        - name: WASMOS__SERVER__PORT
+          value: "8080"
+        - name: WASMOS__DATABASE__URL
+          valueFrom:
+            secretKeyRef:
+              name: wasmos-secrets
+              key: database-url
+        - name: WASMOS__SECURITY__JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: wasmos-secrets
+              key: jwt-secret
+        - name: WASMOS__LOGGING__LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: wasmos-config
+              key: log-level
+        - name: WASMOS__LOGGING__FORMAT
+          value: "json"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: wasm-storage
+          mountPath: /app/wasm_files
+      volumes:
+      - name: wasm-storage
+        persistentVolumeClaim:
+          claimName: wasmos-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wasmos
+  labels:
+    app: wasmos
+spec:
+  type: LoadBalancer
+  selector:
+    app: wasmos
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8080
+  - name: metrics
+    protocol: TCP
+    port: 9090
+    targetPort: 8080
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wasmos-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wasmos-config
+data:
+  log-level: "info"
+  max-wasm-size-mb: "50"
+  execution-timeout-secs: "30"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wasmos-secrets
+type: Opaque
+stringData:
+  # !! Replace with real values via CI/CD — see k8s/secrets.yaml for instructions !!
+  database-url: "postgresql://wasmos:CHANGE_ME@postgres-service:5432/wasmos"
+  jwt-secret:   "CHANGE_ME_TO_AT_LEAST_32_RANDOM_CHARS"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wasmos-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - wasmos.example.com
+    secretName: wasmos-tls
+  rules:
+  - host: wasmos.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: wasmos
+            port:
+              number: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: wasmos-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: wasmos
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

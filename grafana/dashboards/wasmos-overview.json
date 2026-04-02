@@ -1,0 +1,188 @@
+{
+  "title": "WasmOS — Production Overview",
+  "uid": "wasmos-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["wasmos", "production"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "HTTP Requests / min",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(wasmos_http_requests_total[1m])) * 60",
+          "legendFormat": "req/min"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqpm", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            { "value": 0,    "color": "green" },
+            { "value": 1000, "color": "yellow" },
+            { "value": 5000, "color": "red" }
+          ]}
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Error Rate",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(wasmos_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(wasmos_http_requests_total[5m])) * 100",
+          "legendFormat": "error %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            { "value": 0,   "color": "green" },
+            { "value": 1,   "color": "yellow" },
+            { "value": 5,   "color": "red" }
+          ]}
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "P95 Latency",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(wasmos_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p95 ms"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            { "value": 0,    "color": "green" },
+            { "value": 200,  "color": "yellow" },
+            { "value": 1000, "color": "red" }
+          ]}
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Running Tasks",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "wasmos_tasks_total{status=\"running\"}",
+          "legendFormat": "running"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            { "value": 0,  "color": "green" },
+            { "value": 50, "color": "yellow" },
+            { "value": 90, "color": "red" }
+          ]}
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "HTTP Request Rate by Method",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (method) (rate(wasmos_http_requests_total[1m]))",
+          "legendFormat": "{{method}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Task Execution Duration (p50 / p95 / p99)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(wasmos_task_execution_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(wasmos_task_execution_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(wasmos_task_execution_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "WASM Instructions Executed / s",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (task_name) (rate(wasmos_wasm_instructions_total[1m]))",
+          "legendFormat": "{{task_name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "WASM Memory Usage",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "wasmos_wasm_memory_usage_bytes",
+          "legendFormat": "{{task_name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Task Executions — Success vs Failed",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(wasmos_task_executions_total{result=\"success\"}[5m]))",
+          "legendFormat": "success"
+        },
+        {
+          "expr": "sum(rate(wasmos_task_executions_total{result=\"failed\"}[5m]))",
+          "legendFormat": "failed"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Recent 429 Rate-Limited Requests",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "wasmos_http_requests_total{status=\"429\"}",
+          "legendFormat": "{{method}} {{path}}"
+        }
+      ]
+    }
+  ]
+}
