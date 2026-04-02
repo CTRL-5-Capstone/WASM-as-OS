@@ -89,4 +89,110 @@ pub fn execute_wasm_file(path_str: &str) -> Result<super::execution_result::Exec
         }
     }
 }
-
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+ 
+    #[test]
+    fn test_nonexistent_file_returns_err() {
+        let result = execute_wasm_file("/tmp/no_such_file_999.wasm");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+ 
+    #[test]
+    fn test_empty_file_returns_failure() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let result = execute_wasm_file(tmp.path().to_str().unwrap());
+        assert!(result.is_ok());
+        let res = result.unwrap();
+        assert!(!res.success);
+        assert!(res.error.as_deref().unwrap_or("").to_lowercase().contains("empty"));
+    }
+ 
+    #[test]
+    fn test_invalid_binary_returns_failure() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(b"not a wasm file at all").unwrap();
+        let result = execute_wasm_file(tmp.path().to_str().unwrap());
+        match result {
+            Ok(res) => assert!(!res.success, "Invalid WASM should not succeed"),
+            Err(_) => {} // also acceptable
+        }
+    }
+ 
+    fn compile_wat(source: &str) -> tempfile::NamedTempFile {
+        let wasm = wat::parse_str(source).expect("WAT compile failed");
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(&wasm).unwrap();
+        tmp
+    }
+ 
+    #[test]
+    fn test_simple_add() {
+        let tmp = compile_wat(r#"(module
+          (func $add (param i32 i32) (result i32)
+            local.get 0 local.get 1 i32.add)
+          (func (export "start") (result i32)
+            i32.const 5 i32.const 7 call $add return))"#);
+        let result = execute_wasm_file(tmp.path().to_str().unwrap());
+        assert!(result.is_ok(), "Err: {:?}", result);
+    }
+ 
+    #[test]
+    fn test_loop_program() {
+        let tmp = compile_wat(r#"(module
+          (func (export "count") (result i32)
+            (local $i i32)
+            (local.set $i (i32.const 0))
+            (block $exit
+              (loop $loop
+                (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                (br_if $exit (i32.ge_u (local.get $i) (i32.const 10)))
+                (br $loop)))
+            (local.get $i)))"#);
+        let result = execute_wasm_file(tmp.path().to_str().unwrap());
+        assert!(result.is_ok(), "Err: {:?}", result);
+    }
+ 
+    #[test]
+    fn test_memory_store_load() {
+        let tmp = compile_wat(r#"(module
+          (memory (export "memory") 1)
+          (func (export "test") (result i32)
+            (i32.store (i32.const 0) (i32.const 42))
+            (i32.load (i32.const 0))))"#);
+        let result = execute_wasm_file(tmp.path().to_str().unwrap());
+        assert!(result.is_ok(), "Err: {:?}", result);
+    }
+ 
+    #[test]
+    fn test_global_set_get() {
+        let tmp = compile_wat(r#"(module
+          (global $g (mut i32) (i32.const 0))
+          (func (export "inc") (result i32)
+            (global.set $g (i32.add (global.get $g) (i32.const 1)))
+            (global.get $g)))"#);
+        let result = execute_wasm_file(tmp.path().to_str().unwrap());
+        assert!(result.is_ok(), "Err: {:?}", result);
+    }
+ 
+    #[test]
+    fn test_if_else() {
+        let tmp = compile_wat(r#"(module
+          (func (export "max") (param i32 i32) (result i32)
+            (if (result i32) (i32.gt_s (local.get 0) (local.get 1))
+              (then (local.get 0))
+              (else (local.get 1)))))"#);
+        let result = execute_wasm_file(tmp.path().to_str().unwrap());
+        assert!(result.is_ok(), "Err: {:?}", result);
+    }
+ 
+    #[test]
+    fn test_noop_module() {
+        let tmp = compile_wat(r#"(module (func (export "noop")))"#);
+        let result = execute_wasm_file(tmp.path().to_str().unwrap());
+        assert!(result.is_ok(), "Err: {:?}", result);
+    }
+}
