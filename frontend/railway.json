@@ -1,0 +1,4 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "_comment": "The Next.js frontend uses output:'export' (static HTML/CSS/JS). It is NOT deployed as a standalone Railway service. Instead, `npm run build` runs during the root nixpacks build (see nixpacks.toml phases.frontend), which writes static files to ../web/. The Rust backend (actix-files) then serves them. This file is kept for reference only — do NOT link it as a Railway service."
+}
