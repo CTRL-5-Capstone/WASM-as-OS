@@ -1,70 +1,27 @@
-# WASM-OS: A Sandboxed Compute Platform
+# WasmOS (WASM-as-OS)
 
-## Team CTRL 5
-* Ololade Awoyemi
-* Benjamin Wilson
-* Biraj Sharma
-* Shivam Sakthivel Pandi
-* Sritan Reddy Gangidi
+WasmOS is a Rust (actix-web) service for running and managing WebAssembly tasks. It includes a scheduler, REST APIs, a WebSocket endpoint, and a Next.js dashboard.
 
-## Project Description
-This project is a custom WebAssembly (WASM) runtime, built from scratch in Rust, that acts as a secure, sandboxed operating system for executing untrusted WASM code.
+## How this repo is meant to run
 
-Per the project requirements, the runtime is implemented entirely from scratch, and **no external WASM engines like `wasmtime` or `wasmer` are used.**
+- Development: run the backend (`wasmos`) on `:8080` and the Next dev server (`frontend`) on `:3001`. The dev server proxies API calls to the backend.
+- Production-style: build the dashboard as a static export into `web/`, then the backend serves the UI and APIs from a single origin.
 
-The runtime executes `.wasm` modules with strict sandboxing rules, a custom capability-based ABI (e.g., `read_sensor`, `log`), multi-task scheduling, and real-time control through both a CLI and a complete web UI.
+## Repo layout
 
-## Architecture
-The system consists of two main components running concurrently:
-1.  **Rust Backend (`wasmos`)**:
-    *   **Custom WASM Interpreter**: Parses and executes WASM binaries directly.
-    *   **Actix Web Server**: Serves the frontend and provides REST APIs for task management.
-    *   **CLI**: An interactive command-line interface for managing the system.
-2.  **Web Frontend (`web`)**:
-    *   A set of HTML/JS pages for monitoring and interacting with the system.
+- `wasmos/`: Rust backend (API + WebSocket + serves static UI)
+- `frontend/`: Next.js dashboard source
+- `web/`: generated static UI output (do not edit by hand)
+- `scripts/`: local start/stop and verification scripts
+- `k8s/`, `helm/`: Kubernetes deployment options
+- `grafana/`, `prometheus.yml`: observability assets
 
-## Getting Started
+## Quick start
 
-### Prerequisites
-*   [Rust](https://www.rust-lang.org/tools/install) (latest stable version)
+- Local dev (backend + Next dev server): see `RUNNING_GUIDE.md`
+- Deployment (Railway / Render / Fly.io): see `DEPLOYMENT.md`
+- Smoke tests:
+	- Windows PowerShell: `scripts/verify-railway.ps1`
+	- Bash: `scripts/verify-railway.sh`
+- Security policy: see `SECURITY.md`
 
-### Running the Project
-1.  Navigate to the backend directory:
-    ```bash
-    cd wasmos
-    ```
-2.  Run the application:
-    ```bash
-    cargo run
-    ```
-    This will start both the **Web Server** (background) and the **CLI Menu** (interactive).
-
-## Usage Guide
-
-### Command Line Interface (CLI)
-Upon running the application, you will see the following menu:
-*   **Load .Wasm File**: Register a new WASM file into the system.
-*   **Remove .Wasm File**: Delete a registered file.
-*   **Runtime Metrics**: View system performance stats.
-*   **Start wasm**: Execute a loaded WASM module.
-*   **Stop wasm**: Halt a running module.
-*   **Prioritize Wasm's**: (Planned) Adjust scheduling priority.
-*   **Save Machine State**: (Planned) Snapshot the system.
-*   **Shutdown**: Gracefully stop the server and exit.
-
-### Web Interface
-Access the web dashboard at **[http://localhost:8080](http://localhost:8080)**.
-
-*   **Dashboard**: Overview of system status.
-*   **Tasks**: View, upload, and manage WASM tasks.
-*   **Monitor**: Real-time metrics and logs.
-*   **Execute**: Direct execution control.
-*   **Inspect**: Analyze WASM binary structure.
-
-## Project Structure
-*   `wasmos/`: Rust source code.
-    *   `src/run_wasm/`: Custom WASM interpreter and execution engine.
-    *   `src/struct_files/`: Data structures for WASM files and lists.
-    *   `src/server.rs`: Actix web server implementation.
-    *   `src/main.rs`: Entry point, concurrency management, and CLI loop.
-*   `web/`: Frontend assets (HTML, CSS, JS).
