@@ -1,0 +1,64 @@
+Test ID,Test Category,Test Name,Description,Pre-Conditions,Test Steps,Input Data,Expected Result,Actual Result,Status,Severity,Source File
+TC-001,WASM Engine - LEB128 Decoding,Unsigned 32-bit LEB128 Decode,"Verify that the WASM binary parser correctly decodes an unsigned 32-bit integer from the LEB128 variable-length encoding format.",WASM engine parser (Curse) is initialized with valid LEB128 bytes.,"1. Create a Curse parser with byte sequence [0xE5, 0x8E, 0x26]
+2. Call leb_tou32() to decode the bytes
+3. Compare the result against the known decimal value","Byte input: [0xE5, 0x8E, 0x26] (3 bytes)",The decoded unsigned 32-bit integer should equal 624485.,Result equals 624485.,PASS,Critical,src/run_wasm/wasm_engine.rs
+TC-002,WASM Engine - LEB128 Decoding,Signed 32-bit LEB128 Decode,"Verify that the WASM binary parser correctly decodes a signed 32-bit integer from the LEB128 variable-length encoding format, handling sign extension properly.",WASM engine parser (Curse) is initialized with valid LEB128 bytes.,"1. Create a Curse parser with byte sequence [0xE5, 0x8E, 0x26]
+2. Call leb_toi32() to decode the bytes
+3. Compare the result against the known signed decimal value","Byte input: [0xE5, 0x8E, 0x26] (3 bytes)",The decoded signed 32-bit integer should equal 624485.,Result equals 624485.,PASS,Critical,src/run_wasm/wasm_engine.rs
+TC-003,WASM Engine - LEB128 Decoding,32-bit Float LEB128 Decode,"Verify that the WASM binary parser correctly decodes a 32-bit floating-point number from its raw byte representation.",WASM engine parser (Curse) is initialized with valid bytes.,"1. Create a Curse parser with byte sequence [0xE5, 0x8E, 0x26]
+2. Call leb_tou32() to decode the bytes as unsigned integer
+3. Verify the result matches the expected decoded value","Byte input: [0xE5, 0x8E, 0x26] (3 bytes)",The decoded unsigned 32-bit integer should equal 624485 (used as float bit representation test).,Result equals 624485.,PASS,Critical,src/run_wasm/wasm_engine.rs
+TC-004,WASM Engine - Parser,Empty WASM Module Parse,"Verify that the parser correctly handles a minimal valid WASM binary containing only the 8-byte header (magic number + version) and no sections.",A valid minimal WASM binary with only the standard header bytes.,"1. Create a Curse parser with the 8-byte WASM header [0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]
+2. Call parse_wasm() to parse the binary
+3. Verify all module fields are empty (no types, functions, exports, imports, or start point)","Byte input: [0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00] (8 bytes)","Module types list is empty, function list is empty, exports list is empty, imports count is 0, start point is None.",All module fields are empty as expected.,PASS,Critical,src/run_wasm/wasm_engine.rs
+TC-005,WASM Engine - Parser,Invalid WASM Binary - Truncated Section (Should Panic),"Verify that the parser panics and rejects a malformed WASM binary with a section header whose LEB128-encoded size overflows the buffer, preventing out-of-bounds memory access.",Parser is given a WASM binary with a valid header but a corrupted section.,"1. Create a Curse parser with a 14-byte sequence: valid 8-byte header followed by section ID 0x01 and a LEB128 size value [0x80, 0x80, 0x80, 0x80, 0x80] that causes overflow
+2. Call parse_wasm()
+3. Expect the parser to panic","Byte input: [0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x80, 0x80, 0x80, 0x80, 0x80] (14 bytes)",The parser should panic with a Vec Overflow error due to the malformed LEB128 size exceeding buffer bounds.,Parser panics as expected.,PASS,Critical,src/run_wasm/wasm_engine.rs
+TC-006,WASM Engine - Parser,Bad WASM Binary - Malformed Section Data (Should Panic),"Verify that the parser panics when encountering a WASM binary with a valid header but malformed section 0x0A (Code section) containing an invalid LEB128 sequence that overflows.",Parser is given a WASM binary with a valid header but garbage section data.,"1. Create a Curse parser with an 11-byte sequence: valid 8-byte header followed by section ID 0x0A and bytes [0x80, 0x80] which form an incomplete LEB128 sequence
+2. Call parse_wasm()
+3. Expect the parser to panic","Byte input: [0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x80, 0x80] (11 bytes)",The parser should panic with a Vec Overflow error when trying to parse the malformed code section.,Parser panics as expected.,PASS,Critical,src/run_wasm/wasm_engine.rs
+TC-007,Core Library - Arithmetic,Basic Integer Addition,"Verify that the example_add function correctly adds two signed 32-bit integers, including positive and negative number combinations.",Function example_add is available.,"1. Call example_add(2, 3) and verify result is 5
+2. Call example_add(-1, 1) and verify result is 0","Input 1: a=2, b=3; Input 2: a=-1, b=1","First call returns 5, second call returns 0.","Returns 5 and 0 respectively.",PASS,Medium,tests/lib.rs
+TC-008,Core Library - Arithmetic,Integer Division - Success Case,"Verify that the example_divide function correctly divides two integers and returns Ok(result) when the divisor is non-zero.",Function example_divide is available.,"1. Call example_divide(10, 2)
+2. Unwrap the Result
+3. Verify the result equals 5","Input: a=10, b=2",Returns Ok(5).,Returns Ok(5).,PASS,Medium,tests/lib.rs
+TC-009,Core Library - Error Handling,Integer Division by Zero - Error Case,"Verify that the example_divide function returns an Err with the message 'divide by zero' when the divisor is 0, without panicking.",Function example_divide is available.,"1. Call example_divide(5, 0)
+2. Verify the result is Err
+3. Verify the error message is 'divide by zero'","Input: a=5, b=0","Returns Err(""divide by zero"").",Returns the expected error.,PASS,High,tests/lib.rs
+TC-010,Core Library - WASM Module,WASM Module Sanity Check,"Verify that the wasm_module_runs_successfully function returns true when given a non-empty byte slice, simulating a valid WASM module load.",Function wasm_module_runs_successfully is available.,"1. Create a dummy byte vector of 10 zero bytes
+2. Call wasm_module_runs_successfully with the byte slice
+3. Verify the function returns true",A Vec of 10 zero bytes: vec![0u8; 10],Function returns true for non-empty input.,Returns true.,PASS,Medium,tests/lib.rs
+TC-011,Core Library - Edge Case,Integer Addition Overflow (Wrapping Behavior),"Verify that the example_add function handles integer overflow gracefully using wrapping arithmetic (i32::MAX + 1 should wrap to a negative number).",Function example_add uses wrapping_add for overflow safety.,"1. Set a = i32::MAX (2147483647)
+2. Set b = 1
+3. Call example_add(a, b)
+4. Verify the result is negative (wrapped around)","Input: a=2147483647 (i32::MAX), b=1",The result should be negative due to wrapping overflow (i32::MIN = -2147483648).,Result is -2147483648 (negative).,PASS,High,tests/lib.rs
+TC-012,Module Loader - Validation,Valid WASM File Extension,"Verify that the module loader accepts files with the .wasm extension, ensuring only proper WASM binary files are loaded.",A filename string is provided.,"1. Set filename to 'demo.wasm'
+2. Check if the filename ends with '.wasm'
+3. Assert the check returns true","Filename: ""demo.wasm""",The filename passes the .wasm extension check (returns true).,Check returns true.,PASS,Medium,tests/module_loader_test.rs
+TC-013,Module Loader - Validation,Invalid File Extension Rejected,"Verify that the module loader rejects files that do not have the .wasm extension, preventing non-WASM files from being loaded.",A filename string is provided.,"1. Set filename to 'data.txt'
+2. Check if the filename ends with '.wasm'
+3. Assert the check returns false (non-WASM files are rejected)","Filename: ""data.txt""",The filename fails the .wasm extension check (returns false).,Check returns false.,PASS,Medium,tests/module_loader_test.rs
+TC-014,Task Scheduler - Queue,Basic Task Queueing,"Verify that the task scheduler correctly queues multiple tasks and maintains their order, and that the queue length and first element are accessible.",An empty task queue (Vec) is available.,"1. Create a queue with 3 tasks: [1, 2, 3]
+2. Verify the queue length is 3
+3. Verify the first task ID is 1",Task IDs: [1; 2; 3],"Queue length is 3, first element is task ID 1.",Queue contains 3 tasks with first element being 1.,PASS,Medium,tests/scheduler_test.rs
+TC-015,Task Scheduler - Round Robin,Round Robin Single Rotation,"Verify that the round-robin scheduler correctly rotates the task queue by moving the front task to the back after one cycle.",Task queue initialized with [1; 2; 3].,"1. Create a queue with tasks [1, 2, 3]
+2. Remove the first task from the front
+3. Push it to the back
+4. Verify the new order is [2, 3, 1]",Initial queue: [1; 2; 3],"After one rotation, the queue order is [2, 3, 1].",Queue becomes [2; 3; 1].,PASS,High,tests/scheduler_test.rs
+TC-016,Task Scheduler - Round Robin,Round Robin Single Task (No Change),"Verify that the round-robin rotation with only one task in the queue results in no change to the queue order.",Task queue initialized with a single task [42].,"1. Create a queue with one task [42]
+2. Remove the front task
+3. Push it to the back
+4. Verify the queue is still [42]",Initial queue: [42],"After rotation, the queue remains [42].",Queue remains [42].,PASS,Medium,tests/scheduler_test.rs
+TC-017,Task Scheduler - Edge Case,Round Robin Empty Queue,"Verify that the round-robin scheduler handles an empty queue gracefully without errors or panics.",An empty task queue.,"1. Create an empty queue
+2. Verify the queue is empty
+3. Ensure no panic occurs",Empty queue: [],"Queue remains empty, no errors.",Queue is empty; no panic.,PASS,Medium,tests/scheduler_test.rs
+TC-018,Task Scheduler - Round Robin,Round Robin Two Full Rotations,"Verify that performing two consecutive round-robin rotations produces the correct task order.",Task queue initialized with [1; 2; 3; 4].,"1. Create a queue with tasks [1, 2, 3, 4]
+2. Perform first rotation: remove front (1), push to back -> [2, 3, 4, 1]
+3. Perform second rotation: remove front (2), push to back -> [3, 4, 1, 2]
+4. Verify the final order is [3, 4, 1, 2]",Initial queue: [1; 2; 3; 4],"After two rotations, the queue order is [3, 4, 1, 2].",Queue becomes [3; 4; 1; 2].,PASS,High,tests/scheduler_test.rs
+TC-019,System Calls - Capability,Capability Name Format Validation,"Verify that syscall capability names follow the expected naming convention and contain the expected keywords.",A capability name string from the ABI design.,"1. Set capability to 'read_sensor'
+2. Verify the string contains the substring 'sensor'
+3. Assert the check passes","Capability: ""read_sensor""",The capability name contains 'sensor'.,Check passes.,PASS,Medium,tests/syscall_test.rs
+TC-020,System Calls - ID Range,Syscall ID Within Valid Range,"Verify that syscall IDs are within a reasonable and defined range (less than 100), preventing out-of-bounds dispatch errors.",A mock syscall ID is defined.,"1. Set syscall_id to 1
+2. Verify the ID is less than 100
+3. Assert the range check passes",Syscall ID: 1,The syscall ID (1) is less than 100.,Check passes.,PASS,Medium,tests/syscall_test.rs
