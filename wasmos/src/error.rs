@@ -102,3 +102,85 @@ struct ErrorResponse {
 }
 
 pub type Result<T> = std::result::Result<T, WasmOsError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::error::ResponseError;
+ 
+    #[test]
+    fn test_execution_error_500() {
+        let err = WasmOsError::ExecutionError("boom".into());
+        assert_eq!(err.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(err.to_string().contains("boom"));
+    }
+ 
+    #[test]
+    fn test_resource_limit_413() {
+        let err = WasmOsError::ResourceLimit("too big".into());
+        assert_eq!(err.status_code(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+ 
+    #[test]
+    fn test_validation_400() {
+        let err = WasmOsError::Validation("bad input".into());
+        assert_eq!(err.status_code(), StatusCode::BAD_REQUEST);
+    }
+ 
+    #[test]
+    fn test_not_found_404() {
+        let err = WasmOsError::NotFound("task-123".into());
+        assert_eq!(err.status_code(), StatusCode::NOT_FOUND);
+        assert!(err.to_string().contains("task-123"));
+    }
+ 
+    #[test]
+    fn test_task_not_found_404() {
+        let err = WasmOsError::TaskNotFound("abc".into());
+        assert_eq!(err.status_code(), StatusCode::NOT_FOUND);
+    }
+ 
+    #[test]
+    fn test_task_already_running_409() {
+        let err = WasmOsError::TaskAlreadyRunning("xyz".into());
+        assert_eq!(err.status_code(), StatusCode::CONFLICT);
+    }
+ 
+    #[test]
+    fn test_task_not_running_422() {
+        let err = WasmOsError::TaskNotRunning("xyz".into());
+        assert_eq!(err.status_code(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+ 
+    #[test]
+    fn test_unauthorized_401() {
+        let err = WasmOsError::Unauthorized("no token".into());
+        assert_eq!(err.status_code(), StatusCode::UNAUTHORIZED);
+    }
+ 
+    #[test]
+    fn test_io_error_500() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "gone");
+        let err = WasmOsError::Io(io_err);
+        assert_eq!(err.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+ 
+    #[test]
+    fn test_error_response_returns_correct_status() {
+        let err = WasmOsError::Validation("bad".into());
+        let resp = err.error_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+ 
+    #[test]
+    fn test_error_code_mapping() {
+        assert_eq!(error_code(&WasmOsError::ExecutionError("".into())), "EXECUTION_ERROR");
+        assert_eq!(error_code(&WasmOsError::ResourceLimit("".into())), "RESOURCE_LIMIT");
+        assert_eq!(error_code(&WasmOsError::Validation("".into())), "VALIDATION_ERROR");
+        assert_eq!(error_code(&WasmOsError::NotFound("".into())), "NOT_FOUND");
+        assert_eq!(error_code(&WasmOsError::TaskNotFound("".into())), "NOT_FOUND");
+        assert_eq!(error_code(&WasmOsError::TaskAlreadyRunning("".into())), "ALREADY_RUNNING");
+        assert_eq!(error_code(&WasmOsError::TaskNotRunning("".into())), "NOT_RUNNING");
+        assert_eq!(error_code(&WasmOsError::Unauthorized("".into())), "UNAUTHORIZED");
+    }
+}
