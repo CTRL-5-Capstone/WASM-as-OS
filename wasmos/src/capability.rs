@@ -296,3 +296,223 @@ impl From<CapabilityToken> for TokenSummary {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+ 
+    // ── Capability enum ─────────────────────────────────────────────
+ 
+    #[test]
+    fn test_all_variants_constructable() {
+        let caps = vec![
+            Capability::TaskRead, Capability::TaskWrite,
+            Capability::TaskExecute, Capability::TaskDelete,
+            Capability::MetricsRead, Capability::MetricsSystem,
+            Capability::TenantAdmin,
+            Capability::SnapshotRead, Capability::SnapshotWrite,
+            Capability::TerminalAccess, Capability::AuditRead,
+            Capability::Admin,
+        ];
+        assert_eq!(caps.len(), 12);
+    }
+ 
+    #[test]
+    fn test_capability_equality() {
+        assert_eq!(Capability::TaskRead, Capability::TaskRead);
+        assert_ne!(Capability::TaskRead, Capability::TaskWrite);
+    }
+ 
+    #[test]
+    fn test_capability_in_hashset() {
+        let mut set = HashSet::new();
+        set.insert(Capability::TaskRead);
+        set.insert(Capability::TaskWrite);
+        set.insert(Capability::TaskRead); // dupe
+        assert_eq!(set.len(), 2);
+    }
+ 
+    #[test]
+    fn test_capability_serialize_snake_case() {
+        let json = serde_json::to_string(&Capability::TaskRead).unwrap();
+        assert_eq!(json, "\"task_read\"");
+ 
+        let json = serde_json::to_string(&Capability::MetricsSystem).unwrap();
+        assert_eq!(json, "\"metrics_system\"");
+    }
+ 
+    #[test]
+    fn test_capability_deserialize_snake_case() {
+        let cap: Capability = serde_json::from_str("\"task_write\"").unwrap();
+        assert_eq!(cap, Capability::TaskWrite);
+ 
+        let cap: Capability = serde_json::from_str("\"admin\"").unwrap();
+        assert_eq!(cap, Capability::Admin);
+    }
+ 
+    #[test]
+    fn test_capability_all() {
+        let all = Capability::all();
+        assert!(all.len() >= 12);
+        assert!(all.contains(&Capability::TaskRead));
+        assert!(all.contains(&Capability::Admin));
+    }
+ 
+    // ── CapabilityToken ─────────────────────────────────────────────
+ 
+    fn make_token(caps: HashSet<Capability>, revoked: bool, expired: bool) -> CapabilityToken {
+        CapabilityToken {
+            id: "test-id".to_string(),
+            label: "test".to_string(),
+            subject: "user-1".to_string(),
+            tenant_id: None,
+            capabilities: caps,
+            created_at: Utc::now(),
+            expires_at: if expired {
+                Some(Utc::now() - Duration::hours(1))
+            } else {
+                Some(Utc::now() + Duration::hours(1))
+            },
+            revoked,
+        }
+    }
+ 
+    #[test]
+    fn test_token_has_capability() {
+        let mut caps = HashSet::new();
+        caps.insert(Capability::TaskRead);
+        let token = make_token(caps, false, false);
+        assert!(token.has(&Capability::TaskRead));
+        assert!(!token.has(&Capability::TaskWrite));
+    }
+ 
+    #[test]
+    fn test_token_admin_grants_all() {
+        let mut caps = HashSet::new();
+        caps.insert(Capability::Admin);
+        let token = make_token(caps, false, false);
+        assert!(token.has(&Capability::TaskRead));
+        assert!(token.has(&Capability::TaskWrite));
+        assert!(token.has(&Capability::TenantAdmin));
+    }
+ 
+    #[test]
+    fn test_revoked_token_has_nothing() {
+        let mut caps = HashSet::new();
+        caps.insert(Capability::Admin);
+        let token = make_token(caps, true, false);
+        assert!(!token.has(&Capability::TaskRead));
+        assert!(!token.has(&Capability::Admin));
+    }
+ 
+    #[test]
+    fn test_expired_token_has_nothing() {
+        let mut caps = HashSet::new();
+        caps.insert(Capability::TaskRead);
+        let token = make_token(caps, false, true);
+        assert!(!token.has(&Capability::TaskRead));
+    }
+ 
+    #[test]
+    fn test_is_valid_active_token() {
+        let token = make_token(HashSet::new(), false, false);
+        assert!(token.is_valid());
+    }
+ 
+    #[test]
+    fn test_is_valid_revoked() {
+        let token = make_token(HashSet::new(), true, false);
+        assert!(!token.is_valid());
+    }
+ 
+    #[test]
+    fn test_is_valid_expired() {
+        let token = make_token(HashSet::new(), false, true);
+        assert!(!token.is_valid());
+    }
+ 
+    #[test]
+    fn test_token_no_expiry_is_valid() {
+        let token = CapabilityToken {
+            id: "t".into(), label: "l".into(), subject: "s".into(),
+            tenant_id: None,
+            capabilities: HashSet::new(),
+            created_at: Utc::now(),
+            expires_at: None,
+            revoked: false,
+        };
+        assert!(token.is_valid());
+    }
+ 
+    // ── CapabilityRegistry ──────────────────────────────────────────
+ 
+    #[tokio::test]
+    async fn test_registry_issue_and_get() {
+        let reg = CapabilityRegistry::new();
+        let mut caps = HashSet::new();
+        caps.insert(Capability::TaskRead);
+        let token = reg.issue("test", "user1", None, caps, Some(1)).await;
+        let fetched = reg.get(&token.id).await;
+        assert!(fetched.is_some());
+        assert_eq!(fetched.unwrap().id, token.id);
+    }
+ 
+    #[tokio::test]
+    async fn test_registry_get_unknown_returns_none() {
+        let reg = CapabilityRegistry::new();
+        assert!(reg.get("nonexistent").await.is_none());
+    }
+ 
+    #[tokio::test]
+    async fn test_registry_revoke() {
+        let reg = CapabilityRegistry::new();
+        let token = reg.issue("t", "u", None, HashSet::new(), Some(1)).await;
+        assert!(reg.revoke(&token.id).await);
+        assert!(reg.get(&token.id).await.is_none());
+    }
+ 
+    #[tokio::test]
+    async fn test_registry_revoke_unknown_returns_false() {
+        let reg = CapabilityRegistry::new();
+        assert!(!reg.revoke("nope").await);
+    }
+ 
+    #[tokio::test]
+    async fn test_registry_list_all() {
+        let reg = CapabilityRegistry::new();
+        reg.issue("a", "u", None, HashSet::new(), Some(1)).await;
+        reg.issue("b", "u", None, HashSet::new(), Some(1)).await;
+        let all = reg.list_all().await;
+        assert_eq!(all.len(), 2);
+    }
+ 
+    #[tokio::test]
+    async fn test_registry_check_capability() {
+        let reg = CapabilityRegistry::new();
+        let mut caps = HashSet::new();
+        caps.insert(Capability::TaskRead);
+        let token = reg.issue("t", "u", None, caps, Some(1)).await;
+        assert!(reg.check(&token.id, &Capability::TaskRead).await);
+        assert!(!reg.check(&token.id, &Capability::TaskWrite).await);
+    }
+ 
+    #[tokio::test]
+    async fn test_registry_check_revoked_returns_false() {
+        let reg = CapabilityRegistry::new();
+        let mut caps = HashSet::new();
+        caps.insert(Capability::Admin);
+        let token = reg.issue("t", "u", None, caps, Some(1)).await;
+        reg.revoke(&token.id).await;
+        assert!(!reg.check(&token.id, &Capability::Admin).await);
+    }
+ 
+    #[tokio::test]
+    async fn test_registry_list_for_subject() {
+        let reg = CapabilityRegistry::new();
+        reg.issue("a", "alice", None, HashSet::new(), Some(1)).await;
+        reg.issue("b", "bob", None, HashSet::new(), Some(1)).await;
+        reg.issue("c", "alice", None, HashSet::new(), Some(1)).await;
+        let alice_tokens = reg.list_for_subject("alice").await;
+        assert_eq!(alice_tokens.len(), 2);
+    }
+}
