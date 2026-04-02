@@ -58,3 +58,26 @@ wasmos/coverage/
 frontend/coverage/
 lcov.info
 cobertura.xml
+
+# Old root-level files (moved to wasmos/ and docs/)
+/src/
+/tests/
+/.cargo/
+/benches/
+/wasm_files/
+/web-ui/
+/Cargo.toml
+/Cargo.lock
+/build_output.txt
+/run-demo.html
+/wasm_os.db
+/test.wasm
+/test_add.rs
+/test_add.wasm
+/test_loop.rs
+/test_loop.wasm
+/test-plan.pdf
+/*.pdf
+/*.docx
+/*.xlsx
+/wasmos/web-ui/
