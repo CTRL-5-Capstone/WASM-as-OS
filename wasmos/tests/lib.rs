@@ -1,7 +1,7 @@
 // In src/lib.rs (or in a module) — your real code goes above this one
 
 pub fn example_add(a: i32, b: i32) -> i32 {
-    a + b
+    a.wrapping_add(b)
 }
 
 // Suppose you have a function that should fail under certain conditions:
