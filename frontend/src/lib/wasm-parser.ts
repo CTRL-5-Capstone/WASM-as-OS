@@ -498,3 +498,156 @@ export function diffModules(
     resolvedFindings: beforeAnalysis.findings.filter(f => !new Set(afterAnalysis.findings.map(findingKey)).has(findingKey(f))),
   };
 }
+// ── Tests (only run by vitest, stripped from production builds) ──────────
+if (import.meta.vitest) {
+  const { describe, it, expect } = import.meta.vitest;
+ 
+  // Helper: minimal valid WASM (magic + version, no sections)
+  function minimalWasm(): ArrayBuffer {
+    return new Uint8Array([
+      0x00, 0x61, 0x73, 0x6d,
+      0x01, 0x00, 0x00, 0x00,
+    ]).buffer;
+  }
+ 
+  describe('SECTION_NAMES', () => {
+    it('maps 0 → Custom', () => {
+      expect(SECTION_NAMES[0]).toBe('Custom');
+    });
+ 
+    it('maps 1 → Type', () => {
+      expect(SECTION_NAMES[1]).toBe('Type');
+    });
+ 
+    it('maps 7 → Export', () => {
+      expect(SECTION_NAMES[7]).toBe('Export');
+    });
+ 
+    it('maps 10 → Code', () => {
+      expect(SECTION_NAMES[10]).toBe('Code');
+    });
+ 
+    it('has all 13 entries (0–12)', () => {
+      for (let i = 0; i <= 12; i++) {
+        expect(SECTION_NAMES[i]).toBeDefined();
+      }
+    });
+  });
+ 
+  describe('IMPORT_KIND_NAMES', () => {
+    it('maps 0 → func', () => {
+      expect(IMPORT_KIND_NAMES[0]).toBe('func');
+    });
+ 
+    it('maps 1 → table', () => {
+      expect(IMPORT_KIND_NAMES[1]).toBe('table');
+    });
+ 
+    it('maps 2 → memory', () => {
+      expect(IMPORT_KIND_NAMES[2]).toBe('memory');
+    });
+ 
+    it('maps 3 → global', () => {
+      expect(IMPORT_KIND_NAMES[3]).toBe('global');
+    });
+  });
+ 
+  describe('parseWasm', () => {
+    it('rejects empty buffer', () => {
+      const r = parseWasm(new ArrayBuffer(0));
+      expect(r.valid).toBe(false);
+    });
+ 
+    it('rejects buffer smaller than 8 bytes', () => {
+      const r = parseWasm(new Uint8Array([0x00, 0x61]).buffer);
+      expect(r.valid).toBe(false);
+      expect(r.error).toContain('too small');
+    });
+ 
+    it('rejects invalid magic number', () => {
+      const bad = new Uint8Array([
+        0xFF, 0xFF, 0xFF, 0xFF,
+        0x01, 0x00, 0x00, 0x00,
+      ]).buffer;
+      const r = parseWasm(bad);
+      expect(r.valid).toBe(false);
+      expect(r.error).toContain('magic');
+    });
+ 
+    it('rejects 8 zero bytes', () => {
+      const r = parseWasm(new Uint8Array(8).buffer);
+      expect(r.valid).toBe(false);
+    });
+ 
+    it('parses minimal WASM as valid', () => {
+      const r = parseWasm(minimalWasm());
+      expect(r.valid).toBe(true);
+      expect(r.version).toBe(1);
+    });
+ 
+    it('reports correct file size', () => {
+      const r = parseWasm(minimalWasm());
+      expect(r.fileSizeBytes).toBe(8);
+    });
+ 
+    it('returns empty arrays for minimal module', () => {
+      const r = parseWasm(minimalWasm());
+      expect(r.sections).toHaveLength(0);
+      expect(r.imports).toHaveLength(0);
+      expect(r.exports).toHaveLength(0);
+      expect(r.functionCount).toBe(0);
+    });
+ 
+    it('parses a Type section', () => {
+      const wasm = new Uint8Array([
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+      ]).buffer;
+      const r = parseWasm(wasm);
+      expect(r.valid).toBe(true);
+      expect(r.sections[0].name).toBe('Type');
+    });
+ 
+    it('parses Function count', () => {
+      const wasm = new Uint8Array([
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+        0x03, 0x02, 0x01, 0x00,
+      ]).buffer;
+      const r = parseWasm(wasm);
+      expect(r.functionCount).toBe(1);
+    });
+ 
+    it('parses Memory section', () => {
+      const wasm = new Uint8Array([
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x05, 0x03, 0x01, 0x00, 0x01,
+      ]).buffer;
+      const r = parseWasm(wasm);
+      expect(r.memoryCount).toBe(1);
+    });
+ 
+    it('parses Export section', () => {
+      const wasm = new Uint8Array([
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+        0x03, 0x02, 0x01, 0x00,
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00,
+        0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b,
+      ]).buffer;
+      const r = parseWasm(wasm);
+      expect(r.exports).toHaveLength(1);
+      expect(r.exports[0].name).toBe('f');
+      expect(r.exports[0].kindName).toBe('func');
+    });
+ 
+    it('parses Global section count', () => {
+      const wasm = new Uint8Array([
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x06, 0x06, 0x01, 0x7f, 0x01, 0x41, 0x00, 0x0b,
+      ]).buffer;
+      const r = parseWasm(wasm);
+      expect(r.globalCount).toBe(1);
+    });
+  });
+}
