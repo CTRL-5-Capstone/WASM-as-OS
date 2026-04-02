@@ -1,7 +1,11 @@
-<<<<<<< HEAD
-=======
+// interpreter.rs — Legacy hand-rolled single-pass WASM interpreter.
+//
+// Kept for reference only.  The production engine lives in `wasm_engine.rs` +
+// `build_runtime.rs` and supports the full WASM MVP instruction set with a
+// proper call-stack, global variables, branching, and import dispatch.
+//
+// All code below is commented out; this file is intentionally inert.
 /*use supper::wasm_engine::{WasmModule, CodeBody};
->>>>>>> f9b8ff4d9b5a7677c99e8d80d5febdf9159718d6
 use std::collections::HashMap;
 use crate::struct_files::wasm_struct::WasmFile;
 
