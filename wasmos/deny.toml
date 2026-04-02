@@ -1,0 +1,66 @@
+# cargo-deny configuration — supply-chain security, licence compliance,
+# and duplicate-crate detection.
+# Run:  cargo deny check
+# CI:   cargo install cargo-deny && cargo deny check --manifest-path wasmos/Cargo.toml
+
+[graph]
+# Only consider the default feature set for the audit
+all-features = false
+no-default-features = false
+
+# ── Advisories (cargo audit / RustSec) ───────────────────────────────────────
+[advisories]
+# Fail on any unpatched security advisory.
+vulnerability   = "deny"
+unmaintained    = "warn"
+unsound         = "deny"
+yanked          = "deny"
+notice          = "warn"
+
+# ── Licences ─────────────────────────────────────────────────────────────────
+[licenses]
+# Only allow OSI-approved, permissive licences.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Zlib",
+    "OpenSSL",
+]
+# Deny copyleft/commercial licences outright.
+deny = ["GPL-2.0", "GPL-3.0", "LGPL-2.0", "LGPL-2.1", "LGPL-3.0", "AGPL-3.0"]
+# Confidence threshold for licence text matching (0–1).
+confidence-threshold = 0.8
+# Crates that need an exception (e.g. dual-licensed, non-standard header).
+exceptions = [
+    # ring uses a custom OpenSSL-derived licence
+    { allow = ["OpenSSL"], name = "ring" },
+]
+
+# ── Bans ─────────────────────────────────────────────────────────────────────
+[bans]
+# Warn on multiple versions of the same crate — helps keep the dep graph lean.
+multiple-versions = "warn"
+# Deny known-insecure or problematic crates.
+deny = [
+    # openssl-sys has had many CVEs; prefer rustls.
+    # Uncomment if you switch the TLS stack to rustls.
+    # { name = "openssl-sys" },
+]
+# Allow a short skip list for crates that are intentionally duplicated
+# (e.g. transitive deps that haven't converged yet).
+skip = []
+skip-tree = []
+
+# ── Sources ──────────────────────────────────────────────────────────────────
+[sources]
+# Only allow crates from crates.io and the project's own git repo.
+unknown-registry = "deny"
+unknown-git      = "deny"
+allow-registry   = ["https://github.com/rust-lang/crates.io-index"]
+allow-git        = []

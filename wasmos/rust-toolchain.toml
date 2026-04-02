@@ -1,0 +1,8 @@
+# Pin the exact Rust toolchain used for all builds (local + CI + Railway/Render/Fly).
+# Guarantees reproducible compilation across every environment.
+# Update by changing the channel value and committing the file.
+[toolchain]
+channel = "1.93.1"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
+targets     = ["x86_64-unknown-linux-gnu"]
+profile     = "minimal"

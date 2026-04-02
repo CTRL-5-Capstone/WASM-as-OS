@@ -1,0 +1,47 @@
+# WASM-OS Configuration Template
+# Copy this file to config.toml and fill in your values.
+# Environment variables override config: WASMOS__SECTION__KEY=value
+# e.g. WASMOS__DATABASE__URL=postgres://...   WASMOS__SECURITY__JWT_SECRET=...
+
+[server]
+host    = "0.0.0.0"
+port    = 8080
+workers = 4
+# Allowed CORS origins. Use ["*"] for development only.
+cors_origins = ["https://your-frontend.vercel.app"]
+
+[database]
+# PostgreSQL connection string.
+# For Railway/Render, copy the DATABASE_URL from the dashboard.
+url = "postgresql://postgres:password@localhost:5432/wasmos"
+
+[security]
+# Set to true in production to enforce JWT on all /v1/* routes.
+auth_enabled = true
+
+# Generate with:  openssl rand -base64 48
+jwt_secret = "CHANGE_THIS_TO_A_RANDOM_SECRET_AT_LEAST_32_CHARS"
+
+jwt_expiry_hours = 24
+
+# Requests per IP per minute before 429 is returned.
+rate_limit_per_minute = 60
+
+# Secret required to call POST /v1/auth/token.
+# Generate with:  openssl rand -hex 32
+admin_key = "CHANGE_THIS_ADMIN_KEY_BEFORE_DEPLOYING"
+
+[limits]
+max_wasm_size_mb      = 50
+max_memory_mb         = 128
+execution_timeout_secs = 30
+max_instructions       = 10000000
+max_stack_depth        = 1024
+max_concurrent_tasks   = 10
+
+[logging]
+# trace | debug | info | warn | error
+level  = "info"
+# "json" for production log aggregation (Datadog, Logtail, etc.)
+# "pretty" for local development
+format = "json"

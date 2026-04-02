@@ -1,21 +1,87 @@
 [package]
 name = "wasmos"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+# Expose a library target so integration tests in tests/ can import engine APIs.
+# The binary entry-point remains src/main.rs.
+[[bin]]
+name = "wasmos"
+path = "src/main.rs"
+
+[lib]
+name = "wasmos"
+path = "src/lib.rs"
+
+[features]
+default = ["jwt-auth"]
+# Enable full auth stack with argon2 password hashing
+full-auth = ["argon2", "actix-web-httpauth"]
+# JWT auth (lightweight, enabled by default)
+jwt-auth = ["jsonwebtoken"]
 
 [dependencies]
-dialoguer = "0.11" #Menu
-clearscreen = "4.0.2" #Clear Screen
-simple-logging = "2.0.2"
-log = "0.4"
+# Logging and Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-actix-web = "0.7"
+
+# Web Framework
 actix-web = "4"
-actix-cors = "0.6"
+actix-cors = "0.7"
 actix-files = "0.6"
+actix = "0.13"
+actix-web-actors = "4"
+
+# Async trait support (dyn-compatible async methods)
+async-trait = "0.1"
+
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", features = ["full"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
 
-#For .wasm file detection
-directories = "5.0" 
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+
+# Database (always available, but app gracefully handles missing Postgres)
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "chrono", "uuid", "migrate"] }
+
+# Error Handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# Authentication & Security
+jsonwebtoken = { version = "9.2", optional = true }
+argon2 = { version = "0.5", optional = true }
+actix-web-httpauth = { version = "0.8", optional = true }
+rand = "0.8"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
 walkdir = "2.3"
+num_cpus = "1.16"
+
+# Metrics
+prometheus = "0.13"
+lazy_static = "1.4"
+
+# Rate Limiting
+governor = "0.6"
+
+# Async utilities
+futures-util = "0.3"
+
+# In-memory cache with TTL and LRU eviction
+moka = { version = "0.12", features = ["future"] }
+
+# WAT (WebAssembly text format) -> WASM compiler
+wat = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+criterion = "0.5"
