@@ -1,0 +1,60 @@
+# render.yaml — Render Blueprint for WasmOS
+# ─────────────────────────────────────────────────────────────────────────────
+# Deploy via Render Dashboard → "New Blueprint Instance" → point to this repo.
+# Or use the Render CLI:  render blueprint apply
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Build system: Nixpacks (no Docker required)
+#   - Render auto-detects Rust via Cargo.toml
+#   - nixpacks.toml at the repo root controls build phases
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── WasmOS (single service: Rust API + static UI served from /web) ─────────
+  # This repo is configured to export the Next.js UI into ../web and have the
+  # Rust server serve it (same origin, no CORS needed).
+  - type: web
+    name: wasmos
+    env: nixpacks                  # Render nixpacks builder — no Docker needed
+    rootDir: .                     # nixpacks.toml at repo root builds frontend → backend
+    startCommand: wasmos/target/release/wasmos
+    plan: starter                  # starter | standard | pro
+    region: oregon                 # oregon | frankfurt | singapore | ohio
+    healthCheckPath: /health/live
+    autoDeploy: true               # deploy on every push to main
+
+    envVars:
+      - key: WASMOS__SERVER__HOST
+        value: "0.0.0.0"
+      - key: WASMOS__SERVER__PORT
+        value: "10000"             # Render assigns port 10000 by default
+      - key: WASMOS__LOGGING__FORMAT
+        value: "json"
+      - key: WASMOS__LOGGING__LEVEL
+        value: "info"
+      - key: WASMOS__DATABASE__URL
+        fromDatabase:
+          name: wasmos-db
+          property: connectionString
+      - key: WASMOS__SECURITY__JWT_SECRET
+        generateValue: true        # Render generates a cryptographically random value
+      - key: WASMOS__SECURITY__ADMIN_KEY
+        generateValue: true
+      - key: WASMOS__SECURITY__AUTH_ENABLED
+        value: "true"
+      - key: WASMOS__LIMITS__MAX_WASM_SIZE_MB
+        value: "50"
+      - key: WASMOS__LIMITS__EXECUTION_TIMEOUT_SECS
+        value: "30"
+      - key: WASMOS__LIMITS__MAX_CONCURRENT_TASKS
+        value: "32"
+      - key: RUST_LOG
+        value: "info"
+
+# ── Managed PostgreSQL ────────────────────────────────────────────────────────
+databases:
+  - name: wasmos-db
+    plan: starter
+    databaseName: wasmos
+    user: wasmos
+    region: oregon

@@ -1,0 +1,66 @@
+# railway.toml — Railway deployment config for WasmOS (full-stack: backend + static frontend)
+# ─────────────────────────────────────────────────────────────────────────────
+# Architecture:
+#   nixpacks builds Next.js (static export → web/) THEN Rust binary.
+#   The Rust binary serves both the REST API (/v1/...) and the static UI (/).
+#   Single Railway service, single domain — no CORS issues.
+#
+# One-time setup:
+#   1. railway login
+#   2. railway init                              # create new project
+#   3. railway add --database postgres           # provision Railway Postgres
+#   4. Set variables (see table below)
+#   5. git push main  →  Railway auto-deploys
+#
+# CLI quick-deploy:  railway up
+# Run Tier-2 tests against live DB:  railway run cargo test --test api_tests -- --ignored
+# Smoke-test after deploy:           railway run bash scripts/verify-railway.sh $RAILWAY_PUBLIC_DOMAIN
+# Docs: https://docs.railway.app/reference/config-as-code
+# ─────────────────────────────────────────────────────────────────────────────
+
+[build]
+  builder = "nixpacks"
+  # nixpacks.toml defines the multi-phase build (frontend → backend).
+  # Do NOT set buildCommand here — it would override nixpacks.toml phases.
+
+[deploy]
+  startCommand            = "wasmos/target/release/wasmos"
+  healthcheckPath         = "/health/live"
+  healthcheckTimeout      = 30
+  restartPolicyType       = "on_failure"
+  restartPolicyMaxRetries = 5
+
+# ── Required environment variables ────────────────────────────────────────────
+# Set in Railway dashboard → Variables tab, or with the CLI:
+#   railway variables set KEY=value
+#
+#  Variable                               Value
+#  ─────────────────────────────────────  ───────────────────────────────────────────────
+#  WASMOS__SERVER__HOST                   0.0.0.0
+#  WASMOS__SERVER__PORT                   ${{PORT}}
+#  WASMOS__DATABASE__URL                  ${{Postgres.DATABASE_URL}}
+#  WASMOS__SECURITY__AUTH_ENABLED         true
+#  WASMOS__SECURITY__JWT_SECRET           <run: openssl rand -base64 48>
+#  WASMOS__SECURITY__ADMIN_KEY            <run: openssl rand -hex 32>
+#  WASMOS__SECURITY__RATE_LIMIT_PER_MINUTE 120
+#  WASMOS__LIMITS__MAX_WASM_SIZE_MB       50
+#  WASMOS__LIMITS__EXECUTION_TIMEOUT_SECS 30
+#  WASMOS__LIMITS__MAX_CONCURRENT_TASKS   32
+#  WASMOS__LOGGING__FORMAT                json
+#  WASMOS__LOGGING__LEVEL                 info
+#  RUST_LOG                               info
+#
+# Railway injects PORT automatically — reference it with ${{PORT}}.
+# Railway Postgres injects DATABASE_URL — reference it with ${{Postgres.DATABASE_URL}}.
+# CORS: not needed — frontend and backend share the same Railway domain.
+#
+# ── Integration verification ─────────────────────────────────────────────────
+# After deploy, run the smoke-test script:
+#   railway run bash scripts/verify-railway.sh https://<your-app>.up.railway.app
+# Or from PowerShell locally:
+#   .\scripts\verify-railway.ps1 -BaseUrl https://<your-app>.up.railway.app
+#
+# ── Monitoring ───────────────────────────────────────────────────────────────
+# Prometheus metrics:  GET /metrics
+# Liveness probe:      GET /health/live   → {"status":"ok"}
+# Readiness probe:     GET /health/ready  → {"status":"ok","db":true}

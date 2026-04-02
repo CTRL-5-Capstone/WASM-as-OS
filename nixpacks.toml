@@ -1,0 +1,42 @@
+# nixpacks.toml — Nixpacks build configuration for WasmOS (full-stack)
+# Used by Railway and Render (nixpacks builder).
+# Build order:
+#   1. setup  — install Nix packages (Rust toolchain auto-detected via rust-toolchain.toml)
+#   2. frontend — npm ci + Next.js static export → ../web/  (picked up by Rust actix-files)
+#   3. backend — cargo build --release
+# Docs: https://nixpacks.com/docs/configuration/file
+# ─────────────────────────────────────────────────────────────────────────────
+
+[phases.setup]
+  nixPkgs = ["nodejs_20", "pkg-config", "openssl", "openssl.dev", "cacert"]
+  aptPkgs = []
+
+[phases.frontend]
+  # NEXT_PUBLIC_BACKEND_URL="" → Next.js emits relative fetch paths (/v1/...)
+  # so the browser hits the same Railway origin as the Rust backend.
+  cmds = [
+    "cd frontend && npm ci --prefer-offline",
+    "cd frontend && NEXT_PUBLIC_BACKEND_URL='' npm run build",
+  ]
+  dependsOn = ["setup"]
+
+[phases.backend]
+  cmds = [
+    "cd wasmos && cargo build --release",
+  ]
+  dependsOn = ["frontend"]
+
+[start]
+  cmd = "wasmos/target/release/wasmos"
+
+[variables]
+  RUST_LOG                = "info"
+  WASMOS__LOGGING__FORMAT = "json"
+  # PORT is injected automatically by Railway — forwarded via WASMOS__SERVER__PORT
+  # Set these in the Railway dashboard (Variables tab):
+  #   WASMOS__SERVER__PORT          = ${{PORT}}
+  #   WASMOS__SERVER__HOST          = 0.0.0.0
+  #   WASMOS__DATABASE__URL         = ${{Postgres.DATABASE_URL}}
+  #   WASMOS__SECURITY__JWT_SECRET  = <random 48 chars>
+  #   WASMOS__SECURITY__ADMIN_KEY   = <random 32 chars>
+  #   WASMOS__SECURITY__AUTH_ENABLED = true

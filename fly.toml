@@ -1,0 +1,76 @@
+# fly.toml — Fly.io deployment config for WasmOS backend
+# ─────────────────────────────────────────────────────────────────────────────
+# First deploy:
+#   fly launch --no-deploy          # registers app, sets region
+#   fly postgres create             # provisions managed Postgres
+#   fly postgres attach <pg-app>    # sets DATABASE_URL secret automatically
+#   fly secrets set \
+#       WASMOS__SECURITY__JWT_SECRET="$(openssl rand -base64 48)" \
+#       WASMOS__SECURITY__ADMIN_KEY="$(openssl rand -hex 32)" \
+#       WASMOS__SECURITY__AUTH_ENABLED=true
+#   fly deploy
+#
+# Subsequent deploys:  fly deploy
+# Docs: https://fly.io/docs/reference/configuration/
+# ─────────────────────────────────────────────────────────────────────────────
+
+app            = "wasmos"        # change to your Fly app name
+primary_region = "iad"           # iad | lax | fra | sin | syd — nearest to users
+
+# ── Build via Nixpacks (no Docker required) ───────────────────────────────────
+[build]
+  builder   = "nixpacks"
+  # nixpacks.toml at repo root controls build phases; Fly passes it through.
+
+# ── Non-secret environment variables ─────────────────────────────────────────
+[env]
+  RUST_LOG                              = "info"
+  WASMOS__SERVER__HOST                  = "0.0.0.0"
+  WASMOS__LOGGING__FORMAT               = "json"
+  WASMOS__LOGGING__LEVEL                = "info"
+  WASMOS__LIMITS__MAX_WASM_SIZE_MB      = "50"
+  WASMOS__LIMITS__EXECUTION_TIMEOUT_SECS = "30"
+  WASMOS__LIMITS__MAX_CONCURRENT_TASKS  = "32"
+  WASMOS__SECURITY__AUTH_ENABLED        = "true"
+  # WASMOS__SERVER__CORS_ORIGINS set via: fly secrets set WASMOS__SERVER__CORS_ORIGINS=https://...
+
+# ── HTTP service ──────────────────────────────────────────────────────────────
+[[services]]
+  internal_port       = 8080
+  protocol            = "tcp"
+  auto_stop_machines  = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port        = 80
+    handlers    = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port     = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type       = "connections"
+    hard_limit = 512
+    soft_limit = 256
+
+  [[services.http_checks]]
+    interval     = "15s"
+    timeout      = "5s"
+    grace_period = "30s"
+    method       = "get"
+    path         = "/health/live"
+    protocol     = "http"
+
+# ── Persistent volume for uploaded WASM files ─────────────────────────────────
+[[mounts]]
+  source      = "wasmos_data"
+  destination = "/app/wasm_files"
+
+# ── Secrets to set before first deploy ────────────────────────────────────────
+# fly secrets set WASMOS__DATABASE__URL="$(fly postgres connect -a <pg-app> --print-url)"
+# fly secrets set WASMOS__SECURITY__JWT_SECRET="$(openssl rand -base64 48)"
+# fly secrets set WASMOS__SECURITY__ADMIN_KEY="$(openssl rand -hex 32)"
+# fly secrets set WASMOS__SERVER__CORS_ORIGINS="https://<your-frontend>.fly.dev"

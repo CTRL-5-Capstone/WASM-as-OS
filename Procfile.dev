@@ -1,0 +1,14 @@
+# Procfile.dev — local development process runner
+# Usage: foreman start -f Procfile.dev
+# Install: gem install foreman  OR  cargo install forego
+# ─────────────────────────────────────────────────────────────────────────────
+# Requires:
+#   - PostgreSQL running locally (see .env.example for DATABASE_URL)
+#   - Rust toolchain (see wasmos/rust-toolchain.toml)
+#   - Node.js 20+ for the frontend
+#
+# Copy .env.example → .env and fill in secrets before starting.
+# ─────────────────────────────────────────────────────────────────────────────
+
+backend:  cd wasmos && cargo run
+frontend: cd frontend && npm run dev

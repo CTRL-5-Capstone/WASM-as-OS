@@ -1,19 +1,60 @@
-# Rust build artifacts
-/target/
+# ── Rust ──────────────────────────────────────────────────────────────────────
+wasmos/target/
 **/*.rs.bk
+wasmos/check_out*.txt
+wasmos/test_out*.txt
+wasmos/build_output*.txt
 
-# Environment files
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/build/
+frontend/coverage/
+frontend/build_out*.txt
+frontend/dev*.log
+frontend/*.log
+
+# Next.js static export output (served by Rust backend in production)
+web/
+
+# ── Secrets & environment files ───────────────────────────────────────────────
 .env
+.env.local
+.env.*.local
+.env.prod
+# Keep example files
+!.env.example
+!.env.local.example
 
-# IDE
+# ── IDE / editor ──────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# OS
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# Logs
+# ── Build / runtime logs ──────────────────────────────────────────────────────
 *.log
+
+# ── Test artefacts ────────────────────────────────────────────────────────────
+wasmos/check_out*.txt
+wasmos/test_out*.txt
+
+# ── Railway / Nixpacks artefacts ──────────────────────────────────────────────
+.nixpacks/
+.railway/
+
+# ── Fly.io artefacts ──────────────────────────────────────────────────────────
+.fly/
+
+# ── Render artefacts ──────────────────────────────────────────────────────────
+.render-buildpacks.json
+
+# ── Coverage reports ─────────────────────────────────────────────────────────
+wasmos/coverage/
+frontend/coverage/
+lcov.info
+cobertura.xml
