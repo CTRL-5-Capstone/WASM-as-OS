@@ -35,8 +35,7 @@ pub fn execute_wasm_file(path_str: &str) -> Result<super::execution_result::Exec
     let start = std::time::Instant::now();
 
     // Initialize entry point
-    runtime.pop_run();
-
+    runtime.flog = true;
     // Run to completion
     while !runtime.ended {
         runtime.run_prog();
@@ -53,8 +52,8 @@ pub fn execute_wasm_file(path_str: &str) -> Result<super::execution_result::Exec
     };
 
     Ok(super::execution_result::ExecutionResult::success(
-        runtime.instruction_count,
-        runtime.syscall_count,
+        runtime.incount as u64,
+        0,
         memory_used,
         duration_us,
         runtime.stdout_log,

@@ -658,8 +658,8 @@ pub struct Runtime
 {
     pub fpflags: PFlags,
     pub spflags: PFlags,
-    #[serde(skip)]
-    pub terminal: Option<Arc<Mutex<ChildStdin>>>,
+    //#[serde(skip)]
+    //pub terminal: Option<Arc<Mutex<ChildStdin>>>,
     pub paused: bool,
     pub incount: usize,
     pub ended: bool,
@@ -775,7 +775,7 @@ impl Runtime
                 off +=1;
             }
         }
-        Runtime{fpflags: PFlags::new(), spflags: PFlags::new(), terminal: None, paused: false, incount: 0, ended: false, priority: 1, flog: false, clog: false, limflag: false, limit: 0, module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs,}
+        Runtime{fpflags: PFlags::new(), spflags: PFlags::new(), /*terminal: None,*/ paused: false, incount: 0, ended: false, priority: 1, flog: false, clog: false, limflag: false, limit: 0, module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs,}
     } 
     pub fn pop_run(&mut self)
     {
@@ -863,7 +863,7 @@ impl Runtime
         }
         if self.clog
         {
-            if self.terminal.is_none() && let Ok(mut term) = Command::new("cmd").args(["/C", "start", "cmd", "/k", "more"]).stdin(Stdio::piped()).spawn()
+            /*if self.terminal.is_none() && let Ok(mut term) = Command::new("cmd").args(["/C", "start", "cmd", "/k", "more"]).stdin(Stdio::piped()).spawn()
             {
                     self.terminal = Some(Arc::new(Mutex::new(term.stdin.take().expect("Terminal Child Process error"))));
             }
@@ -876,7 +876,7 @@ impl Runtime
                     && let Err(_err) = writeln!(pip, "{logg}\n")
             {
                 println!("Could not write to terminal Runtime: {}", self.module.name);
-            }
+            }*/
         }
     }
     pub fn run_prog(&mut self)

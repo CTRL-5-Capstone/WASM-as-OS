@@ -71,9 +71,9 @@ async fn main() -> std::io::Result<()> {
             
             App::new()
                 .wrap(TracingLogger::default())
+                .wrap(cors)
                 .wrap(RequestId)
                 .wrap(RateLimiter::new(security_config.rate_limit_per_minute))
-                .wrap(cors)
                 .app_data(app_state.clone())
                 .app_data(
                     web::JsonConfig::default()
@@ -104,7 +104,7 @@ async fn main() -> std::io::Result<()> {
                 .service(server::stop_task)
                 .service(server::delete_task)
                 // Static files
-                .service(Files::new("/", "../web").index_file("index.html"))
+                .service(Files::new("/", "./web").index_file("index.html"))
         })
         .workers(server_config.workers)
         .bind((server_config.host, server_config.port))

@@ -49,7 +49,7 @@ function hideConnectionError() {
 // Check connection using /health/live (lightweight, no DB query)
 async function checkConnection() {
     try {
-        const response = await fetch('http://localhost:8080/health/live');
+        const response = await fetch('/health/live');
         if (response.ok) {
             hideConnectionError();
             return true;
