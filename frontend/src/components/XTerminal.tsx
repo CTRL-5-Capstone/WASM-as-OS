@@ -18,13 +18,17 @@ export default function XTerminal({ className = "", wsUrl, onSecurityAlert }: XT
   const divRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const wsConnectedRef = useRef<boolean>(false);
   const inputBufRef = useRef<string>("");
   const historyRef = useRef<string[]>([]);
   const histIdxRef = useRef<number>(-1);
   const pipeBufferRef = useRef<string | null>(null); // for pipe simulation
 
-  const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8080";
-  const WS_URL = wsUrl || BACKEND.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://") + "/ws";
+  const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL
+    || (typeof window !== "undefined" && window.location.hostname !== "localhost"
+      ? `${window.location.protocol}//${window.location.host}`
+      : "http://127.0.0.1:8080");
+  const WS_URL = wsUrl || BACKEND.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://") + "/ws?mode=terminal";
 
   // ─── Built-in command handler (fallback when WS not available) ───────
 
@@ -297,11 +301,21 @@ export default function XTerminal({ className = "", wsUrl, onSecurityAlert }: XT
 
     let term: import("@xterm/xterm").Terminal;
     let fitAddon: import("@xterm/addon-fit").FitAddon;
+    let promptShown = false; // dedup — prevents double-prompt from WS connect + timeout race
+
+    const showPrompt = () => {
+      if (promptShown) return;
+      promptShown = true;
+      term.write("\r\n\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+    };
 
     const init = async () => {
-      const { Terminal } = await import("@xterm/xterm");
-      const { FitAddon } = await import("@xterm/addon-fit");
-      const { WebLinksAddon } = await import("@xterm/addon-web-links");
+      // Load all three modules in parallel for faster cold start
+      const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
+        import("@xterm/xterm"),
+        import("@xterm/addon-fit"),
+        import("@xterm/addon-web-links"),
+      ]);
 
       term = new Terminal({
         theme: {
@@ -345,60 +359,91 @@ export default function XTerminal({ className = "", wsUrl, onSecurityAlert }: XT
 
       // Welcome banner
       term.writeln("\x1b[96m╔══════════════════════════════════════════════════╗\x1b[0m");
-      term.writeln("\x1b[96m║   WASM-OS Command Center  ·  Web-CLI v4.0       ║\x1b[0m");
+      term.writeln("\x1b[96m║   WASM-OS Command Center  ·  Web-CLI v5.0       ║\x1b[0m");
       term.writeln("\x1b[96m╚══════════════════════════════════════════════════╝\x1b[0m");
-      term.writeln("\x1b[90mType \x1b[96mhelp\x1b[90m for available commands · Supports piping with |\x1b[0m");
+      term.writeln("\x1b[90mType \x1b[96mhelp\x1b[90m for available commands\x1b[0m");
       term.writeln("");
 
       // Try WebSocket
-      let wsConnected = false;
       try {
         const ws = new WebSocket(WS_URL);
         wsRef.current = ws;
 
         ws.onopen = () => {
-          wsConnected = true;
+          wsConnectedRef.current = true;
           term.writeln(`\x1b[92m✓ WebSocket connected\x1b[0m  ${WS_URL}`);
-          term.write("\r\n\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+          term.writeln("\x1b[90mCommands are processed server-side via WebSocket\x1b[0m");
+          showPrompt();
         };
 
         ws.onmessage = (ev) => {
           try {
             const msg = JSON.parse(ev.data);
-            if (msg.type === "task_update") {
-              term.writeln(`\r\n\x1b[90m[ws]\x1b[0m task ${msg.task_id} → ${msg.status}`);
-            } else if (msg.type === "security_alert") {
-              term.writeln(`\r\n\x1b[91m🚨 SECURITY ALERT:\x1b[0m ${msg.message}`);
-              if (onSecurityAlert) onSecurityAlert(msg.message, msg.level || "warn");
-            } else if (msg.type === "ping") {
-              ws.send(JSON.stringify({ type: "pong" }));
+            switch (msg.type) {
+              case "output":
+                // Server-processed command output — write directly to terminal
+                if (msg.data) {
+                  term.write(msg.data);
+                }
+                // Re-draw prompt after output
+                term.write("\r\n\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+                break;
+              case "terminal_ready":
+                // Session established acknowledgement
+                break;
+              case "task_event":
+              case "task_update":
+                term.writeln(`\r\n\x1b[90m[event]\x1b[0m task ${msg.task_id} → ${msg.status}`);
+                term.write("\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ " + inputBufRef.current);
+                break;
+              case "security_alert":
+                term.writeln(`\r\n\x1b[91m🚨 SECURITY ALERT:\x1b[0m ${msg.message}`);
+                term.write("\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ " + inputBufRef.current);
+                if (onSecurityAlert) onSecurityAlert(msg.message, msg.level || "warn");
+                break;
+              case "ping":
+                ws.send(JSON.stringify({ type: "pong" }));
+                break;
+              case "pong":
+              case "connected":
+              case "resize":
+                // Control messages — ignore silently
+                break;
+              case "error":
+                term.writeln(`\r\n\x1b[91m[ws error]\x1b[0m ${msg.message || "unknown"}`);
+                term.write("\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ " + inputBufRef.current);
+                break;
+              default:
+                // Unknown message types — log for debug
+                break;
             }
           } catch {/* non-JSON ok */}
         };
 
         ws.onerror = () => {
-          if (!wsConnected) {
+          if (!wsConnectedRef.current) {
             term.writeln("\x1b[90m⚠ WebSocket unavailable — running in local CLI mode\x1b[0m");
-            term.write("\r\n\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+            showPrompt();
           }
         };
 
         ws.onclose = () => {
-          if (wsConnected) {
-            term.writeln("\r\n\x1b[90m⚑ WebSocket disconnected\x1b[0m");
-          }
+          wsConnectedRef.current = false;
+          promptShown = false; // allow re-prompt on reconnect
+          term.writeln("\r\n\x1b[90m⚑ WebSocket disconnected — falling back to local CLI mode\x1b[0m");
+          term.write("\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
         };
 
-        // Timeout for WS connection
+        // Timeout for WS connection — only show fallback if WS hasn't connected
         setTimeout(() => {
-          if (!wsConnected) {
+          if (!wsConnectedRef.current) {
             term.writeln("\x1b[90m⚠ WebSocket timeout — running in local CLI mode\x1b[0m");
-            term.write("\r\n\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+            showPrompt();
           }
-        }, 2000);
+        }, 3000);
       } catch {
         term.writeln("\x1b[90m⚠ WebSocket unavailable — running in local CLI mode\x1b[0m");
-        term.write("\r\n\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+        showPrompt();
       }
 
       // Key handler
@@ -422,8 +467,23 @@ export default function XTerminal({ className = "", wsUrl, onSecurityAlert }: XT
             localStorage.setItem("wasm_audit_log", JSON.stringify(auditLog));
           }
 
-          await handleBuiltin(line, term);
-          term.write("\r\n\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+          // Handle "clear" client-side regardless of WS state
+          if (line.trim() === "clear" || line.trim() === "cls") {
+            term.clear();
+            term.write("\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+            return;
+          }
+
+          // Route through WebSocket when connected (server-side processing)
+          const ws = wsRef.current;
+          if (ws && wsConnectedRef.current && ws.readyState === WebSocket.OPEN && line.trim()) {
+            ws.send(JSON.stringify({ type: "input", data: line }));
+            // Output & prompt will be rendered when server sends "output" message back
+          } else {
+            // Fallback to local CLI mode (client-side REST-based processing)
+            await handleBuiltin(line, term);
+            term.write("\r\n\x1b[96m$\x1b[0m \x1b[33mwasmos\x1b[0m ❯ ");
+          }
         } else if (code === 8) {
           // Backspace
           if (inputBufRef.current.length > 0) {
@@ -479,6 +539,7 @@ export default function XTerminal({ className = "", wsUrl, onSecurityAlert }: XT
     init();
 
     return () => {
+      wsConnectedRef.current = false;
       wsRef.current?.close();
       termRef.current?.dispose();
       termRef.current = null;
