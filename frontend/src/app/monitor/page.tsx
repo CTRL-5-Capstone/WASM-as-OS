@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   Activity, Cpu, HardDrive, Zap, RefreshCw, Wifi, WifiOff,
   BarChart3, Terminal, TrendingUp, TrendingDown, Minus,
   Database, Clock, Package, AlertCircle, CheckCircle2,
+  Network, Users, Lock, ShieldCheck, MemoryStick,
 } from "lucide-react";
-import { getStats, getTasks, healthReady, getPrometheusMetrics,
-  type SystemStats, type Task,
+import { getStats, getTasks, healthReady, getPrometheusMetrics, getTenants,
+  type SystemStats, type Task, type Tenant,
 } from "@/lib/api";
 import { formatNumber, cn } from "@/lib/utils";
 import {
@@ -96,11 +97,205 @@ function KPICard({
   );
 }
 
+// ─── Multi-Tenant Isolation Map ──────────────────────────────────────
+
+const TENANT_PALETTE = [
+  { bg: "bg-indigo-500/15", border: "border-indigo-500/40", text: "text-indigo-400", bar: "#6366f1" },
+  { bg: "bg-emerald-500/15", border: "border-emerald-500/40", text: "text-emerald-400", bar: "#22c55e" },
+  { bg: "bg-amber-500/15", border: "border-amber-500/40", text: "text-amber-400", bar: "#f59e0b" },
+  { bg: "bg-rose-500/15", border: "border-rose-500/40", text: "text-rose-400", bar: "#ef4444" },
+  { bg: "bg-cyan-500/15", border: "border-cyan-500/40", text: "text-cyan-400", bar: "#06b6d4" },
+  { bg: "bg-violet-500/15", border: "border-violet-500/40", text: "text-violet-400", bar: "#8b5cf6" },
+  { bg: "bg-pink-500/15", border: "border-pink-500/40", text: "text-pink-400", bar: "#ec4899" },
+  { bg: "bg-sky-500/15", border: "border-sky-500/40", text: "text-sky-400", bar: "#0ea5e9" },
+];
+
+interface TenantStats {
+  tenant: Tenant;
+  taskCount: number;
+  runningCount: number;
+  failedCount: number;
+  memUsagePct: number;
+  cpuUsagePct: number;
+  taskCapPct: number;
+  palette: typeof TENANT_PALETTE[0];
+}
+
+function IsolationMap({ tenants, tasks }: { tenants: Tenant[]; tasks: Task[] }) {
+  const stats: TenantStats[] = useMemo(() => {
+    return tenants.map((tenant, i) => {
+      const tTasks = tasks.filter((t) => t.tenant_id === tenant.id);
+      const running = tTasks.filter((t) => t.status === "running");
+      const failed = tTasks.filter((t) => t.status === "failed");
+      // Simulated resource usage based on running tasks relative to limits
+      const memUsagePct = tenant.max_memory_mb > 0
+        ? Math.min(100, (running.length * 64) / tenant.max_memory_mb * 100) : 0;
+      const cpuUsagePct = tenant.max_cpu_percent > 0
+        ? Math.min(100, (running.length / Math.max(1, tenant.max_concurrent)) * tenant.max_cpu_percent) : 0;
+      const taskCapPct = tenant.max_tasks > 0
+        ? Math.min(100, (tTasks.length / tenant.max_tasks) * 100) : 0;
+      return {
+        tenant,
+        taskCount: tTasks.length,
+        runningCount: running.length,
+        failedCount: failed.length,
+        memUsagePct,
+        cpuUsagePct,
+        taskCapPct,
+        palette: TENANT_PALETTE[i % TENANT_PALETTE.length],
+      };
+    });
+  }, [tenants, tasks]);
+
+  if (tenants.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Network size={14} className="text-indigo-500" /> Multi-Tenant Isolation Map
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            No tenants configured — create tenants via RBAC to see isolation boundaries
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <Network size={14} className="text-indigo-500" /> Multi-Tenant Isolation Map
+          <Badge variant="outline" className="ml-auto text-[10px]">
+            {tenants.length} tenant{tenants.length > 1 ? "s" : ""}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Visual isolation grid */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {stats.map(({ tenant, taskCount, runningCount, failedCount, memUsagePct, cpuUsagePct, taskCapPct, palette }) => (
+            <div
+              key={tenant.id}
+              className={cn(
+                "relative rounded-xl border-2 p-4 transition-all",
+                palette.border, palette.bg,
+                !tenant.active && "opacity-50 grayscale"
+              )}
+            >
+              {/* Isolation boundary indicator */}
+              <div className="absolute -top-2 -right-2">
+                <div className={cn(
+                  "flex h-5 w-5 items-center justify-center rounded-full text-white",
+                  tenant.active ? "bg-emerald-500" : "bg-muted-foreground"
+                )}>
+                  {tenant.active ? <ShieldCheck size={10} /> : <Lock size={10} />}
+                </div>
+              </div>
+
+              {/* Header */}
+              <div className="flex items-center gap-2 mb-3">
+                <Users size={13} className={palette.text} />
+                <span className={cn("font-semibold text-sm", palette.text)}>{tenant.name}</span>
+              </div>
+
+              {/* Task counts */}
+              <div className="grid grid-cols-3 gap-2 mb-3 text-center">
+                <div>
+                  <p className="text-lg font-bold text-foreground">{taskCount}</p>
+                  <p className="text-[9px] text-muted-foreground uppercase">Tasks</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-emerald-400">{runningCount}</p>
+                  <p className="text-[9px] text-muted-foreground uppercase">Running</p>
+                </div>
+                <div>
+                  <p className={cn("text-lg font-bold", failedCount > 0 ? "text-red-400" : "text-muted-foreground")}>{failedCount}</p>
+                  <p className="text-[9px] text-muted-foreground uppercase">Failed</p>
+                </div>
+              </div>
+
+              {/* Resource usage bars */}
+              <div className="space-y-2">
+                {[
+                  { label: "Memory", pct: memUsagePct, limit: `${tenant.max_memory_mb} MB` },
+                  { label: "CPU",    pct: cpuUsagePct, limit: `${tenant.max_cpu_percent}%` },
+                  { label: "Tasks",  pct: taskCapPct,  limit: `${tenant.max_tasks} max` },
+                ].map(({ label, pct, limit }) => (
+                  <div key={label}>
+                    <div className="flex justify-between text-[10px] text-muted-foreground mb-0.5">
+                      <span>{label}</span>
+                      <span>{Math.round(pct)}% / {limit}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-emerald-500"
+                        )}
+                        style={{ width: `${Math.min(100, pct)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Quota limits */}
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground">
+                  Max {tenant.max_concurrent} concurrent
+                </span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground">
+                  Max {tenant.max_wasm_size_mb}MB WASM
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Aggregate isolation health */}
+        <div className="rounded-lg border border-border bg-muted/10 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck size={12} className="text-emerald-500" />
+            <span className="text-xs font-semibold text-foreground">Isolation Health</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div>
+              <p className="text-sm font-bold text-emerald-400">{stats.filter((s) => s.tenant.active).length}</p>
+              <p className="text-[10px] text-muted-foreground">Active Tenants</p>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-foreground">{stats.reduce((a, s) => a + s.taskCount, 0)}</p>
+              <p className="text-[10px] text-muted-foreground">Total Isolated Tasks</p>
+            </div>
+            <div>
+              <p className={cn("text-sm font-bold", stats.some((s) => s.memUsagePct > 90) ? "text-red-400" : "text-emerald-400")}>
+                {stats.filter((s) => s.memUsagePct > 90).length === 0 ? "OK" : `${stats.filter((s) => s.memUsagePct > 90).length} at limit`}
+              </p>
+              <p className="text-[10px] text-muted-foreground">Memory Pressure</p>
+            </div>
+            <div>
+              <p className={cn("text-sm font-bold", stats.some((s) => s.taskCapPct > 90) ? "text-amber-400" : "text-emerald-400")}>
+                {stats.filter((s) => s.taskCapPct > 90).length === 0 ? "OK" : `${stats.filter((s) => s.taskCapPct > 90).length} near cap`}
+              </p>
+              <p className="text-[10px] text-muted-foreground">Task Capacity</p>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Page ──────────────────────────────────────────────────────
 
 export default function MonitorPage() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [online, setOnline] = useState(true);
   const [dbReady, setDbReady] = useState(true);
   const [history, setHistory] = useState<Tick[]>([]);
@@ -135,6 +330,9 @@ export default function MonitorPage() {
     try {
       const [s, t] = await Promise.all([getStats(), getTasks()]);
       setOnline(true);
+
+      // Fetch tenants (non-blocking — don't fail the whole refresh)
+      try { setTenants(await getTenants()); } catch { /* tenants API may not be available */ }
 
       // Compute per-tick deltas for instruction/syscall rate
       const prev = prevStats.current;
@@ -215,7 +413,7 @@ export default function MonitorPage() {
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold gradient-text">Monitor</h1>
+          <h1 className="text-2xl font-bold gradient-text">Monitor</h1>
           <p className="mt-1 text-sm text-muted-foreground">Real-time system telemetry · 2 s refresh</p>
         </div>
         <div className="flex items-center gap-3">
@@ -344,6 +542,9 @@ export default function MonitorPage() {
         </Card>
       </div>
 
+      {/* ── Multi-Tenant Isolation Map ── */}
+      <IsolationMap tenants={tenants} tasks={tasks} />
+
       {/* ── Live task list ── */}
       <Card>
         <CardHeader className="pb-2">
@@ -369,7 +570,7 @@ export default function MonitorPage() {
                     t.status === "running"   ? "bg-emerald-400 animate-pulse" :
                     t.status === "failed"    ? "bg-red-400" :
                     t.status === "completed" ? "bg-indigo-400" :
-                    t.status === "pending"   ? "bg-amber-400" : "bg-slate-400"
+                    t.status === "pending"   ? "bg-amber-400" : "bg-muted-foreground"
                   )} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{t.name}</p>
@@ -427,7 +628,7 @@ export default function MonitorPage() {
         </CardHeader>
         {showProm && (
           <CardContent>
-            <ScrollArea className="h-64 rounded-lg border border-border bg-slate-950">
+            <ScrollArea className="h-64 rounded-lg border border-border bg-black/40">
               <pre className="p-3 font-mono text-[11px] text-emerald-400 whitespace-pre-wrap">
                 {prometheus || "# loading…"}
               </pre>
@@ -471,7 +672,7 @@ export default function MonitorPage() {
                       : evt.type === "task_failed"   ? "bg-red-400"
                       : evt.type === "task_started"  ? "bg-sky-400"
                       : evt.type === "task_stopped"  ? "bg-amber-400"
-                      : "bg-slate-300"
+                      : "bg-muted-foreground"
                     )} />
                     <div className="flex-1 min-w-0">
                       <span className={cn(
@@ -515,7 +716,7 @@ export default function MonitorPage() {
           {termFeed.length === 0 ? (
             <p className="text-sm text-muted-foreground">No terminal activity yet — run commands in the Terminal or Command Center CLI.</p>
           ) : (
-            <ScrollArea className="h-56 rounded-lg border border-border bg-slate-950">
+            <ScrollArea className="h-56 rounded-lg border border-border bg-black/40">
               <div className="p-3 font-mono text-xs space-y-0.5">
                 {termFeed.map((line) => (
                   <div key={line.id} className={cn("whitespace-pre-wrap break-words",

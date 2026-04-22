@@ -114,8 +114,11 @@ export default function AnalyticsPage() {
 
   // Also try WebSocket for live metrics push
   useEffect(() => {
-    const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8080");
-    const wsUrl = BACKEND.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://") + "/ws";
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL
+      || (typeof window !== "undefined" && window.location.hostname !== "localhost"
+        ? `${window.location.protocol}//${window.location.host}`
+        : "http://127.0.0.1:8080");
+    const wsUrl = backendUrl.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://") + "/ws";
     let ws: WebSocket | null = null;
     let dead = false;
 

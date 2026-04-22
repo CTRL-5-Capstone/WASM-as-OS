@@ -94,7 +94,7 @@ export default function MetricsView() {
       {taskCounters.length > 0 && (
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-sm text-slate-900">Task & Execution Counters</CardTitle>
+            <CardTitle className="text-sm text-foreground">Task & Execution Counters</CardTitle>
             <Button onClick={refresh} variant="ghost" size="sm" className="text-xs">
               <RefreshCw size={12} /> Refresh
             </Button>
@@ -102,15 +102,15 @@ export default function MetricsView() {
           <CardContent>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={taskCounters}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="name" tick={{ fill: "#475569", fontSize: 12 }} />
-              <YAxis tick={{ fill: "#475569", fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 12 }} />
+              <YAxis tick={{ fill: "#94a3b8", fontSize: 12 }} />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #e2e8f0",
+                  backgroundColor: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
                   borderRadius: "8px",
-                  color: "#0f172a",
+                  color: "hsl(var(--foreground))",
                   fontSize: "12px",
                 }}
               />
@@ -124,11 +124,11 @@ export default function MetricsView() {
       {/* Raw metrics */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm text-slate-900">Raw Prometheus Metrics</CardTitle>
+          <CardTitle className="text-sm text-foreground">Raw Prometheus Metrics</CardTitle>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-96 rounded-lg border border-slate-200 bg-slate-950">
-            <pre className="p-4 text-xs text-slate-200 overflow-x-auto font-mono leading-relaxed">
+          <ScrollArea className="h-96 rounded-lg border border-border bg-black/40">
+            <pre className="p-4 text-xs text-emerald-400 overflow-x-auto font-mono leading-relaxed">
               {raw || "Loading…"}
             </pre>
           </ScrollArea>
