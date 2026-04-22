@@ -19,7 +19,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (isFullScreen) {
     return (
       <main id="main-content" className="min-h-screen bg-background">
-        {children}
+        <ErrorBoundary>{children}</ErrorBoundary>
       </main>
     );
   }

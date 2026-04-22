@@ -25,10 +25,13 @@ import {
   FlaskConical,
   Shield,
   Play,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { healthLive } from '@/lib/api';
 import { useSidebar } from '@/components/SidebarContext';
+import { useTheme } from '@/lib/theme-context';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -38,30 +41,32 @@ import {
 } from '@/components/ui/tooltip';
 
 const NAV = [
-  { href: '/',          label: 'Dashboard',  icon: LayoutDashboard },
-  { href: '/tasks',     label: 'Tasks',       icon: ListTodo       },
-  { href: '/security',  label: 'Security',    icon: ShieldAlert    },
-  { href: '/monitor',   label: 'Monitor',     icon: Activity       },
-  { href: '/terminal',  label: 'Terminal',    icon: Terminal       },
-  { href: '/tokens',    label: 'Tokens',      icon: Key            },
-  { href: '/snapshots', label: 'Snapshots',   icon: Camera         },
-  { href: '/traces',    label: 'Traces',      icon: GitBranch      },
-  { href: '/audit',     label: 'Audit Log',   icon: ScrollText     },
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/tasks', label: 'Tasks', icon: ListTodo },
+  { href: '/security', label: 'Security', icon: ShieldAlert },
+  { href: '/monitor', label: 'Monitor', icon: Activity },
+  { href: '/terminal', label: 'Terminal', icon: Terminal },
+  { href: '/tokens', label: 'Tokens', icon: Key },
+  { href: '/snapshots', label: 'Snapshots', icon: Camera },
+  { href: '/traces', label: 'Traces', icon: GitBranch },
+  { href: '/audit', label: 'Audit Log', icon: ScrollText },
 ];
 
 const NAV_ADVANCED = [
-  { href: '/analytics',      label: 'Analytics',       icon: BarChart3    },
-  { href: '/batch',          label: 'Batch Exec',      icon: Layers       },
-  { href: '/command-center', label: 'Command Center',  icon: MonitorDot   },
-  { href: '/tests',          label: 'Test Suite',      icon: FlaskConical },
-  { href: '/rbac',           label: 'RBAC & Audit',    icon: Shield       },
-  { href: '/demo',           label: 'Demo',            icon: Play         },
+  { href: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { href: '/metrics', label: 'Metrics', icon: Activity },
+  { href: '/batch', label: 'Batch Exec', icon: Layers },
+  { href: '/command-center', label: 'Command Center', icon: MonitorDot },
+  { href: '/tests', label: 'Test Suite', icon: FlaskConical },
+  { href: '/rbac', label: 'RBAC & Audit', icon: Shield },
+  { href: '/demo', label: 'Demo', icon: Play },
 ];
 
 export default function Sidebar() {
-  const pathname  = usePathname();
+  const pathname = usePathname();
   const { collapsed, setCollapsed } = useSidebar();
-  const [online,    setOnline]    = useState<boolean | null>(null);
+  const { theme, toggleTheme } = useTheme();
+  const [online, setOnline] = useState<boolean | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(() => {
     // Auto-open if current page is in advanced nav
     if (typeof window === 'undefined') return false;
@@ -253,8 +258,8 @@ export default function Sidebar() {
                   online === null
                     ? 'text-muted-foreground'
                     : online
-                    ? 'text-emerald-400'
-                    : 'text-destructive'
+                      ? 'text-emerald-400'
+                      : 'text-destructive'
                 )}
               >
                 {online === null ? 'Checking…' : online ? 'Connected' : 'Offline'}
@@ -262,6 +267,27 @@ export default function Sidebar() {
             )}
           </div>
         </div>
+
+        {/* ── Theme toggle ── */}
+        <Button
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          variant="ghost"
+          size="icon"
+          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          className="h-10 w-full rounded-none border-t border-border text-muted-foreground hover:text-foreground shrink-0"
+        >
+          {theme === 'dark' ? (
+            <Sun size={15} strokeWidth={2} aria-hidden="true" />
+          ) : (
+            <Moon size={15} strokeWidth={2} aria-hidden="true" />
+          )}
+          {!collapsed && (
+            <span className="ml-2 text-xs font-medium">
+              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            </span>
+          )}
+        </Button>
 
         {/* ── Collapse toggle ── */}
         <Button
