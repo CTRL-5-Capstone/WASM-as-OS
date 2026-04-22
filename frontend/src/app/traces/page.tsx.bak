@@ -1,0 +1,455 @@
+"use client";
+
+/**
+ * Traces — production-ready improvements:
+ *  - Search filters trace_id, task_id, and task_name
+ *  - All / OK / Failed filter pills
+ *  - Copy trace ID button per row
+ *  - started_at timestamp shown per row
+ *  - Auto-refresh at 30s with "last updated" time shown
+ *  - In expanded span view, link to /execution/report?id=... when execution_id available
+ *  - Pagination: 50 traces per page with Prev/Next
+ *  - 0-duration spans show 0-width bar with a minimum indicator dot, not 4%
+ */
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import {
+  GitBranch, RefreshCw, Search, X, CheckCircle, AlertTriangle,
+  Clock, Activity, ChevronDown, ChevronUp, FileText, Copy,
+  ExternalLink, ChevronLeft, ChevronRight,
+} from "lucide-react";
+import {
+  listTraces, getLiveMetrics, type TraceRecord, type LiveMetrics,
+} from "@/lib/api";
+import { formatDuration, timeAgo, cn } from "@/lib/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
+
+const PAGE_SIZE = 50;
+
+type StatusFilter = "all" | "ok" | "failed";
+
+// ── Live Metrics Bar ──────────────────────────────────────────────────────────
+
+function LiveMetricsBar({ m }: { m: LiveMetrics }) {
+  const items = [
+    { label: "Success rate", value: `${(m.success_rate * 100).toFixed(1)}%`, ok: m.success_rate > 0.8 },
+    { label: "p50",          value: formatDuration(m.p50_us),               ok: m.p50_us < 1_000_000 },
+    { label: "p95",          value: formatDuration(m.p95_us),               ok: m.p95_us < 5_000_000 },
+    { label: "p99",          value: formatDuration(m.p99_us),               ok: m.p99_us < 10_000_000 },
+    { label: "Avg",          value: formatDuration(m.avg_us),               ok: m.avg_us < 2_000_000 },
+    { label: "Throughput",   value: `${m.throughput_per_min.toFixed(1)}/min`, ok: true },
+  ];
+  return (
+    <div className="flex gap-3 flex-wrap">
+      {items.map(({ label, value, ok }) => (
+        <div key={label} className="flex items-center gap-1.5 rounded-lg bg-muted/30 border border-border px-3 py-2">
+          <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", ok ? "bg-green-400" : "bg-yellow-400")} />
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
+            <p className="text-xs font-semibold">{value}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Trace Row ─────────────────────────────────────────────────────────────────
+
+function TraceRow({ trace }: { trace: TraceRecord }) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  const copyTraceId = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(trace.trace_id).then(
+      () => toast.success("Trace ID copied"),
+      () => toast.error("Failed to copy")
+    );
+  };
+
+  // Format started_at nicely
+  const startedLabel = trace.started_at
+    ? new Date(trace.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
+
+  return (
+    <div className="border-b border-border/50">
+      <div className="flex items-center">
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex-1 flex items-center gap-3 px-4 py-2.5 text-xs hover:bg-muted/20 transition-colors text-left"
+        >
+          {trace.success ? (
+            <CheckCircle size={13} className="text-green-400 shrink-0" />
+          ) : (
+            <AlertTriangle size={13} className="text-red-400 shrink-0" />
+          )}
+          {/* Trace ID + copy button */}
+          <span className="flex items-center gap-1 shrink-0">
+            <span
+              className="font-mono text-muted-foreground w-20 truncate"
+              title={trace.trace_id}
+            >
+              {trace.trace_id.slice(0, 8)}…
+            </span>
+            <button
+              onClick={copyTraceId}
+              className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded"
+              title="Copy trace ID"
+            >
+              <Copy size={10} />
+            </button>
+          </span>
+          {/* Task name */}
+          <span className="font-medium flex-1 truncate" title={trace.task_id}>
+            {trace.task_name || trace.task_id.slice(0, 12)}
+          </span>
+          {/* started_at */}
+          {startedLabel && (
+            <span className="text-muted-foreground shrink-0 hidden sm:inline flex items-center gap-1">
+              <Clock size={10} className="inline" /> {startedLabel}
+            </span>
+          )}
+          <span className="text-muted-foreground shrink-0">{trace.spans.length} spans</span>
+          <span className="font-medium shrink-0">
+            {trace.total_duration_us != null ? formatDuration(trace.total_duration_us) : "—"}
+          </span>
+          <Badge
+            variant={trace.success ? "default" : "destructive"}
+            className="text-[10px] h-4 px-1.5 shrink-0"
+          >
+            {trace.success ? "OK" : "FAIL"}
+          </Badge>
+          {open
+            ? <ChevronUp size={13} className="shrink-0 text-muted-foreground" />
+            : <ChevronDown size={13} className="shrink-0 text-muted-foreground" />}
+        </button>
+        {/* Navigate to task detail */}
+        <button
+          title="View task"
+          onClick={() => router.push(`/tasks?task=${trace.task_id}`)}
+          className="px-3 py-2.5 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+        >
+          <FileText size={13} />
+        </button>
+      </div>
+
+      {open && (
+        <div className="px-4 pb-3 bg-muted/10">
+          <div className="space-y-1.5">
+            {trace.spans.map((span, i) => {
+              // Only show non-zero width for spans that have real duration
+              const hasRealDuration =
+                trace.total_duration_us != null &&
+                trace.total_duration_us > 0 &&
+                span.duration_us != null &&
+                span.duration_us > 0;
+
+              const widthPct = hasRealDuration
+                ? Math.round((span.duration_us! / trace.total_duration_us!) * 100)
+                : 0;
+
+              // execution_id may be in span_id or embedded in kind — check span_id
+              const maybeExecId = span.span_id?.match(
+                /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+              )?.[0];
+
+              return (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  {span.success ? (
+                    <CheckCircle size={11} className="text-green-400 shrink-0" />
+                  ) : (
+                    <AlertTriangle size={11} className="text-red-400 shrink-0" />
+                  )}
+                  <span className="w-20 shrink-0 font-medium text-muted-foreground capitalize">
+                    {span.kind}
+                  </span>
+                  {/* Duration bar: 0-duration shows a dot, not a wide bar */}
+                  <div className="flex-1 h-1.5 bg-muted/40 rounded-full relative">
+                    {widthPct > 0 ? (
+                      <div
+                        className={cn(
+                          "h-1.5 rounded-full transition-all",
+                          span.success ? "bg-green-400/70" : "bg-red-400/70"
+                        )}
+                        style={{ width: `${widthPct}%` }}
+                      />
+                    ) : (
+                      // Minimum indicator dot for 0-duration spans
+                      <div
+                        className={cn(
+                          "absolute top-0 left-0 h-1.5 w-1.5 rounded-full",
+                          span.success ? "bg-green-400/50" : "bg-red-400/50"
+                        )}
+                      />
+                    )}
+                  </div>
+                  <span className="text-muted-foreground shrink-0 w-16 text-right">
+                    {span.duration_us != null ? formatDuration(span.duration_us) : "—"}
+                  </span>
+                  {span.error && (
+                    <span
+                      className="text-red-400 text-[10px] shrink-0 truncate max-w-24"
+                      title={span.error}
+                    >
+                      {span.error}
+                    </span>
+                  )}
+                  {/* Link to execution report if we have an execution_id */}
+                  {maybeExecId && (
+                    <a
+                      href={`/execution/report?id=${maybeExecId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-400 hover:text-indigo-300 shrink-0"
+                      title="Open execution report"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink size={11} />
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export default function TracesPage() {
+  const [traces,     setTraces]     = useState<TraceRecord[]>([]);
+  const [metrics,    setMetrics]    = useState<LiveMetrics | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [search,     setSearch]     = useState("");
+  const [filter,     setFilter]     = useState<StatusFilter>("all");
+  const [page,       setPage]       = useState(1);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [t, m] = await Promise.allSettled([listTraces(), getLiveMetrics()]);
+      if (t.status === "fulfilled") setTraces(t.value);
+      if (m.status === "fulfilled") setMetrics(m.value);
+      setLastUpdated(new Date());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  // Reset to page 1 whenever filter/search changes
+  useEffect(() => { setPage(1); }, [search, filter]);
+
+  const filtered = traces.filter((t) => {
+    if (filter === "ok" && !t.success) return false;
+    if (filter === "failed" && t.success) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return (
+        t.trace_id.toLowerCase().includes(q) ||
+        t.task_id.toLowerCase().includes(q) ||
+        (t.task_name ?? "").toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const filterPills: { label: string; value: StatusFilter; color: string }[] = [
+    { label: "All",    value: "all",    color: "bg-muted text-foreground" },
+    { label: "OK",     value: "ok",     color: "bg-green-500/15 text-green-400 border-green-500/30" },
+    { label: "Failed", value: "failed", color: "bg-red-500/15 text-red-400 border-red-500/30" },
+  ];
+
+  return (
+    <div className="animate-fade-in space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold gradient-text flex items-center gap-2">
+            <GitBranch size={22} />
+            Traces
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Distributed execution traces and span timings
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <span className="text-[11px] text-muted-foreground hidden sm:inline">
+              Updated {timeAgo(lastUpdated.toISOString())}
+            </span>
+          )}
+          <Button onClick={load} variant="ghost" size="icon" className="h-9 w-9">
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Live metrics */}
+      {metrics && (
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+            Live Metrics
+          </p>
+          <LiveMetricsBar m={metrics} />
+        </div>
+      )}
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { icon: Activity,      label: "Total Traces", value: traces.length },
+          { icon: CheckCircle,   label: "Successful",   value: traces.filter((t) => t.success).length },
+          { icon: AlertTriangle, label: "Failed",        value: traces.filter((t) => !t.success).length },
+        ].map(({ icon: Icon, label, value }) => (
+          <Card key={label} className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                <Icon size={15} className="text-primary" />
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
+                <p className="text-lg font-bold">{value}</p>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Search + filter pills */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative max-w-sm flex-1 min-w-[200px]">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search by trace ID, task ID, or name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 h-8 text-sm"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {filterPills.map(({ label, value, color }) => (
+            <button
+              key={value}
+              onClick={() => setFilter(value)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors",
+                filter === value
+                  ? color + " border-current"
+                  : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Trace list */}
+      <Card>
+        {/* Column header */}
+        <CardHeader className="pb-3 pt-4 px-4 border-b border-border">
+          <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+            <span className="w-5 shrink-0" />
+            <span className="w-28 shrink-0">Trace ID</span>
+            <span className="flex-1">Task</span>
+            <span className="shrink-0 hidden sm:inline">Time</span>
+            <span className="shrink-0">Spans</span>
+            <span className="shrink-0 w-20 text-right">Duration</span>
+            <span className="shrink-0 w-12 text-right">Status</span>
+            <span className="shrink-0 w-5" />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="divide-y divide-border/50">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="px-4 py-3">
+                  <Skeleton className="h-4 w-full" />
+                </div>
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground">
+              <div className="text-center">
+                <GitBranch size={32} className="mx-auto mb-3 opacity-20" />
+                <p className="text-sm">No traces found</p>
+                <p className="text-xs mt-1 opacity-70">
+                  {search || filter !== "all"
+                    ? "Try adjusting your search or filter"
+                    : "Traces are recorded when WASM modules execute"}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <ScrollArea className="h-[500px]">
+                {paginated.map((trace) => (
+                  <TraceRow key={trace.trace_id} trace={trace} />
+                ))}
+              </ScrollArea>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-border px-4 py-3">
+                  <span className="text-xs text-muted-foreground">
+                    Page {page} of {totalPages} &mdash; {filtered.length} traces
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs gap-1"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                    >
+                      <ChevronLeft size={13} /> Prev
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs gap-1"
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                    >
+                      Next <ChevronRight size={13} />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

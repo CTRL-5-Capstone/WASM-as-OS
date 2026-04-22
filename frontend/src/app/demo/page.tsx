@@ -211,76 +211,76 @@ export default function DemoPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-700 px-5 py-6">
       <div className="mx-auto max-w-6xl">
-        <header className="mb-6 rounded-xl bg-white/95 px-6 py-6 text-center shadow-lg ring-1 ring-black/5">
+        <header className="mb-6 rounded-xl bg-card/80 backdrop-blur px-6 py-6 text-center shadow-lg border border-border/50">
           <div className="flex items-center justify-center gap-3">
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
+            <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
               WASM-as-OS
             </h1>
             <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-amber-900">
               {online === false ? 'DEMO MODE' : 'LIVE'}
             </span>
           </div>
-          <p className="mt-2 text-sm text-slate-600">WebAssembly Execution Platform — Interactive Run Demo</p>
+          <p className="mt-2 text-sm text-muted-foreground">WebAssembly Execution Platform — Interactive Run Demo</p>
         </header>
 
         {online === false && (
-          <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
+          <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400 shadow-sm">
             <strong>Demo Mode:</strong> backend is not reachable. Start `wasmos` on `:8080` for full functionality.
           </div>
         )}
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Card className="bg-white/95 text-slate-900 shadow-lg ring-1 ring-black/5">
+          <Card className="bg-card/80 backdrop-blur border-border/50 shadow-lg">
             <CardHeader>
-              <CardTitle className="text-slate-900">System Status</CardTitle>
-              <CardDescription className="text-slate-600">Live connectivity and runtime mode</CardDescription>
+              <CardTitle className="text-foreground">System Status</CardTitle>
+              <CardDescription className="text-muted-foreground">Live connectivity and runtime mode</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Backend</span>
-                <span className={online ? 'rounded-md bg-emerald-100 px-2 py-1 font-semibold text-emerald-900' : 'rounded-md bg-amber-100 px-2 py-1 font-semibold text-amber-900'}>
+                <span className="text-muted-foreground">Backend</span>
+                <span className={online ? 'rounded-md bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-400' : 'rounded-md bg-amber-500/10 px-2 py-1 font-semibold text-amber-400'}>
                   {online === null ? 'Checking…' : online ? 'Connected' : 'Offline'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Frontend</span>
-                <span className="rounded-md bg-emerald-100 px-2 py-1 font-semibold text-emerald-900">Active</span>
+                <span className="text-muted-foreground">Frontend</span>
+                <span className="rounded-md bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-400">Active</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">API</span>
-                <span className={online ? 'rounded-md bg-emerald-100 px-2 py-1 font-semibold text-emerald-900' : 'rounded-md bg-amber-100 px-2 py-1 font-semibold text-amber-900'}>
+                <span className="text-muted-foreground">API</span>
+                <span className={online ? 'rounded-md bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-400' : 'rounded-md bg-amber-500/10 px-2 py-1 font-semibold text-amber-400'}>
                   {online ? 'Real' : 'Simulated'}
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-white/95 text-slate-900 shadow-lg ring-1 ring-black/5">
+          <Card className="bg-card/80 backdrop-blur border-border/50 shadow-lg">
             <CardHeader>
-              <CardTitle className="text-slate-900">Demo Stats</CardTitle>
-              <CardDescription className="text-slate-600">Modules, tasks, and system counters</CardDescription>
+              <CardTitle className="text-foreground">Demo Stats</CardTitle>
+              <CardDescription className="text-muted-foreground">Modules, tasks, and system counters</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-indigo-50 px-4 py-4 text-center">
-                  <div className="text-3xl font-extrabold text-indigo-600">{moduleCount}</div>
-                  <div className="mt-1 text-xs font-medium text-slate-600">Sample Modules</div>
+                <div className="rounded-lg bg-primary/10 px-4 py-4 text-center">
+                  <div className="text-3xl font-extrabold text-primary">{moduleCount}</div>
+                  <div className="mt-1 text-xs font-medium text-muted-foreground">Sample Modules</div>
                 </div>
-                <div className="rounded-lg bg-indigo-50 px-4 py-4 text-center">
-                  <div className="text-3xl font-extrabold text-indigo-600">{taskCount}</div>
-                  <div className="mt-1 text-xs font-medium text-slate-600">Tasks</div>
+                <div className="rounded-lg bg-primary/10 px-4 py-4 text-center">
+                  <div className="text-3xl font-extrabold text-primary">{taskCount}</div>
+                  <div className="mt-1 text-xs font-medium text-muted-foreground">Tasks</div>
                 </div>
               </div>
 
               {stats && (
-                <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-700">
-                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-foreground/80">
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
                     <div className="font-semibold">Instructions</div>
-                    <div className="mt-1 text-slate-600">{stats.total_instructions.toLocaleString()}</div>
+                    <div className="mt-1 text-muted-foreground">{stats.total_instructions.toLocaleString()}</div>
                   </div>
-                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
                     <div className="font-semibold">Syscalls</div>
-                    <div className="mt-1 text-slate-600">{stats.total_syscalls.toLocaleString()}</div>
+                    <div className="mt-1 text-muted-foreground">{stats.total_syscalls.toLocaleString()}</div>
                   </div>
                 </div>
               )}
@@ -288,10 +288,10 @@ export default function DemoPage() {
           </Card>
         </div>
 
-        <Card className="mt-4 bg-white/95 text-slate-900 shadow-lg ring-1 ring-black/5">
+        <Card className="mt-4 bg-card/80 backdrop-blur border-border/50 shadow-lg">
           <CardHeader>
-            <CardTitle className="text-slate-900">Upload WASM Module</CardTitle>
-            <CardDescription className="text-slate-600">Drag & drop a `.wasm` or `.wat` file, or click to choose</CardDescription>
+            <CardTitle className="text-foreground">Upload WASM Module</CardTitle>
+            <CardDescription className="text-muted-foreground">Drag & drop a `.wasm` or `.wat` file, or click to choose</CardDescription>
           </CardHeader>
           <CardContent>
             <input
@@ -331,17 +331,17 @@ export default function DemoPage() {
               className={
                 'rounded-xl border-2 border-dashed px-6 py-10 text-center transition ' +
                 (dragOver
-                  ? 'border-indigo-500 bg-indigo-50'
-                  : 'border-slate-300 bg-white hover:border-indigo-500 hover:bg-indigo-50/50')
+                  ? 'border-indigo-500 bg-primary/10'
+                  : 'border-border bg-muted/20 hover:border-indigo-500 hover:bg-primary/5')
               }
             >
               <div className="text-4xl">📁</div>
-              <div className="mt-3 text-sm font-semibold text-slate-800">
+              <div className="mt-3 text-sm font-semibold text-foreground">
                 {busy === 'upload' ? 'Uploading…' : 'Click to upload, or drag & drop'}
               </div>
-              <div className="mt-1 text-xs text-slate-500">Max size depends on your backend config</div>
+              <div className="mt-1 text-xs text-muted-foreground/70">Max size depends on your backend config</div>
               {latestTaskId && (
-                <div className="mt-3 text-xs text-slate-600">
+                <div className="mt-3 text-xs text-muted-foreground">
                   Latest task: <span className="font-mono">{latestTaskId}</span>
                 </div>
               )}
@@ -349,10 +349,10 @@ export default function DemoPage() {
           </CardContent>
         </Card>
 
-        <Card className="mt-4 bg-white/95 text-slate-900 shadow-lg ring-1 ring-black/5">
+        <Card className="mt-4 bg-card/80 backdrop-blur border-border/50 shadow-lg">
           <CardHeader>
-            <CardTitle className="text-slate-900">Demo Actions</CardTitle>
-            <CardDescription className="text-slate-600">Execute, inspect metrics, and validate scheduling behavior</CardDescription>
+            <CardTitle className="text-foreground">Demo Actions</CardTitle>
+            <CardDescription className="text-muted-foreground">Execute, inspect metrics, and validate scheduling behavior</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-3">
@@ -367,7 +367,7 @@ export default function DemoPage() {
                 onClick={() => void viewMetrics()}
                 disabled={busy !== null}
                 variant="secondary"
-                className="bg-slate-900/5 text-slate-900 hover:bg-slate-900/10"
+                className="bg-muted/30 text-foreground hover:bg-muted/50"
               >
                 View Metrics
               </Button>
@@ -375,7 +375,7 @@ export default function DemoPage() {
                 onClick={() => void testScheduler()}
                 disabled={busy !== null}
                 variant="secondary"
-                className="bg-slate-900/5 text-slate-900 hover:bg-slate-900/10"
+                className="bg-muted/30 text-foreground hover:bg-muted/50"
               >
                 Test Scheduler
               </Button>
@@ -390,13 +390,13 @@ export default function DemoPage() {
                 onClick={() => void refreshAll('Refreshing demo data…')}
                 disabled={busy !== null}
                 variant="outline"
-                className="border-slate-200 text-slate-800 hover:bg-slate-50"
+                className="border-border text-foreground hover:bg-muted/30"
               >
                 Refresh
               </Button>
             </div>
 
-            <div className="mt-3 text-xs text-slate-500">
+            <div className="mt-3 text-xs text-muted-foreground/70">
               {sampleFile ? (
                 <>Sample module: <span className="font-mono">{sampleFile.name}</span> (from `/v1/test-files`)</>
               ) : (
@@ -406,13 +406,13 @@ export default function DemoPage() {
           </CardContent>
         </Card>
 
-        <Card className="mt-4 bg-white/95 text-slate-900 shadow-lg ring-1 ring-black/5">
+        <Card className="mt-4 bg-card/80 backdrop-blur border-border/50 shadow-lg">
           <CardHeader>
-            <CardTitle className="text-slate-900">Demo Logs</CardTitle>
-            <CardDescription className="text-slate-600">Live activity stream (frontend + backend)</CardDescription>
+            <CardTitle className="text-foreground">Demo Logs</CardTitle>
+            <CardDescription className="text-muted-foreground">Live activity stream (frontend + backend)</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-lg bg-slate-900 px-3 py-3 text-slate-100 shadow-inner">
+            <div className="rounded-lg bg-black/40 border border-border px-3 py-3 text-foreground shadow-inner">
               <ScrollArea className="h-72">
                 <div className="space-y-1 font-mono text-xs">
                   {logs.map((l, idx) => {
@@ -423,7 +423,7 @@ export default function DemoPage() {
                           ? 'text-emerald-300'
                           : l.type === 'WARN'
                             ? 'text-amber-200'
-                            : 'text-slate-100';
+                            : 'text-foreground/80';
                     return (
                       <div key={idx} className={color}>
                         [{l.ts}] [{l.type}] {l.message}
@@ -437,21 +437,21 @@ export default function DemoPage() {
         </Card>
 
         {setupOpen && (
-          <Card className="mt-4 bg-white/95 text-slate-900 shadow-lg ring-1 ring-black/5">
+          <Card className="mt-4 bg-card/80 backdrop-blur border-border/50 shadow-lg">
             <CardHeader>
-              <CardTitle className="text-slate-900">Full Installation Setup</CardTitle>
-              <CardDescription className="text-slate-600">Docker path is optional; local run works too</CardDescription>
+              <CardTitle className="text-foreground">Full Installation Setup</CardTitle>
+              <CardDescription className="text-muted-foreground">Docker path is optional; local run works too</CardDescription>
             </CardHeader>
-            <CardContent className="text-sm text-slate-700">
+            <CardContent className="text-sm text-foreground/80">
               <div className="font-semibold">To run the complete system:</div>
               <ol className="mt-2 list-decimal space-y-1 pl-5">
                 <li>Start the Rust backend (`wasmos`) on `http://127.0.0.1:8080`</li>
                 <li>Start the Next.js dashboard (`frontend`) on `http://localhost:3001`</li>
                 <li>(Optional) If Docker is available, use `docker compose up -d --build`</li>
               </ol>
-              <div className="mt-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
+              <div className="mt-4 rounded-lg bg-muted/30 border border-border px-4 py-3 text-sm">
                 <div className="font-semibold">Tip</div>
-                <div className="text-slate-600">See `RUNNING_GUIDE.md` for copy/paste PowerShell steps.</div>
+                <div className="text-muted-foreground">See `RUNNING_GUIDE.md` for copy/paste PowerShell steps.</div>
               </div>
             </CardContent>
           </Card>

@@ -1,0 +1,559 @@
+"use client";
+
+/**
+ * Snapshots — production-ready snapshot management.
+ * Features:
+ *  - Auto-populate form from last execution log
+ *  - View Globals expandable section per snapshot
+ *  - Confirm before delete
+ *  - Total count + newest-first sort
+ *  - Search bar to filter by note
+ *  - "Run & Snapshot" button
+ */
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  Camera, Trash2, RefreshCw, Plus,
+  Box, Clock, Cpu, HardDrive, Layers, Info,
+  ChevronDown, ChevronUp, Play, Search, X,
+} from "lucide-react";
+import {
+  getTasks, getSnapshots, createSnapshot, deleteSnapshot, startTask, getTaskLogs,
+  type Task, type Snapshot,
+} from "@/lib/api";
+import { formatBytes, formatNumber, timeAgo, cn } from "@/lib/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
+
+export default function SnapshotsPage() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string>("");
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [runningSnap, setRunningSnap] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expandedGlobals, setExpandedGlobals] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+
+  // Form fields
+  const [note, setNote] = useState("");
+  const [memoryMb, setMemoryMb] = useState("4");
+  const [instructions, setInstructions] = useState("0");
+  const [stackDepth, setStackDepth] = useState("0");
+  const [globalsJson, setGlobalsJson] = useState("{}");
+
+  useEffect(() => {
+    getTasks()
+      .then((data) => {
+        setTasks(data);
+        if (data.length > 0 && !selectedTaskId) setSelectedTaskId(data[0].id);
+      })
+      .catch(() => toast.error("Failed to load tasks"));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadSnapshots = useCallback(async () => {
+    if (!selectedTaskId) return;
+    setLoading(true);
+    try {
+      const data = await getSnapshots(selectedTaskId);
+      // Sort newest first
+      const sorted = [...(data ?? [])].sort(
+        (a, b) => new Date(b.captured_at ?? b.created_at ?? 0).getTime()
+               - new Date(a.captured_at ?? a.created_at ?? 0).getTime()
+      );
+      setSnapshots(sorted);
+    } catch {
+      toast.error("Failed to load snapshots");
+      setSnapshots([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedTaskId]);
+
+  useEffect(() => { loadSnapshots(); }, [loadSnapshots]);
+
+  /** Auto-populate form fields from the task's last execution log */
+  const autoPopulate = useCallback(async () => {
+    if (!selectedTaskId) return;
+    try {
+      const log = await getTaskLogs(selectedTaskId);
+      setMemoryMb(String(Math.ceil((log.memory_used_bytes ?? 0) / (1024 * 1024)) || 4));
+      setInstructions(String(log.instructions_executed ?? 0));
+      setStackDepth("0"); // not in logs, leave as 0
+      setGlobalsJson("{}");
+      toast.success("Form populated from last execution");
+    } catch {
+      toast.warning("No execution log found — using defaults");
+    }
+  }, [selectedTaskId]);
+
+  const openForm = () => {
+    setShowForm(true);
+    autoPopulate();
+  };
+
+  const handleCreate = async () => {
+    if (!selectedTaskId) return;
+    try { JSON.parse(globalsJson); } catch { toast.error("Globals JSON is invalid"); return; }
+    setCreating(true);
+    try {
+      const snap = await createSnapshot(selectedTaskId, {
+        memory_mb: Number(memoryMb) || 4,
+        instructions: Number(instructions) || 0,
+        stack_depth: Number(stackDepth) || 0,
+        globals_json: globalsJson,
+        note: note || undefined,
+      });
+      setSnapshots((prev) => [snap, ...prev]);
+      toast.success("Snapshot created");
+      setShowForm(false);
+      setNote(""); setGlobalsJson("{}"); setInstructions("0"); setStackDepth("0");
+    } catch (e: unknown) {
+      toast.error(`Create failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  /** Execute the task then immediately capture a snapshot with real data */
+  const handleRunAndSnapshot = async () => {
+    if (!selectedTaskId) return;
+    setRunningSnap(true);
+    try {
+      toast.info("Running task…");
+      const result = await startTask(selectedTaskId);
+      const memMb = Math.ceil((result.memory_used_bytes ?? 0) / (1024 * 1024)) || 4;
+      toast.info("Capturing snapshot…");
+      const snap = await createSnapshot(selectedTaskId, {
+        memory_mb: memMb,
+        instructions: result.instructions_executed ?? 0,
+        stack_depth: 0,
+        globals_json: "{}",
+        note: `Auto: ${new Date().toLocaleTimeString()}`,
+      });
+      setSnapshots((prev) => [snap, ...prev]);
+      toast.success("Run & Snapshot complete");
+    } catch (e: unknown) {
+      toast.error(`Run & Snapshot failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRunningSnap(false);
+    }
+  };
+
+  const handleDelete = async (snapId: string) => {
+    if (!selectedTaskId) return;
+    const confirmed = window.confirm("Delete this snapshot? This cannot be undone.");
+    if (!confirmed) return;
+    setDeletingId(snapId);
+    try {
+      await deleteSnapshot(selectedTaskId, snapId);
+      setSnapshots((prev) => prev.filter((s) => s.id !== snapId));
+      toast.success("Snapshot deleted");
+    } catch (e: unknown) {
+      toast.error(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const toggleGlobals = (snapId: string) => {
+    setExpandedGlobals((prev) => {
+      const next = new Set(prev);
+      if (next.has(snapId)) next.delete(snapId); else next.add(snapId);
+      return next;
+    });
+  };
+
+  const selectedTask = tasks.find((t) => t.id === selectedTaskId);
+
+  const filteredSnapshots = search
+    ? snapshots.filter((s) => (s.note ?? "").toLowerCase().includes(search.toLowerCase()))
+    : snapshots;
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold gradient-text flex items-center gap-2">
+            <Camera size={26} /> Snapshots
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Capture and restore WASM execution state
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadSnapshots}
+            disabled={loading}
+            className="text-xs"
+          >
+            <RefreshCw size={13} className={cn(loading && "animate-spin")} /> Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRunAndSnapshot}
+            disabled={!selectedTaskId || runningSnap}
+            className="text-xs gap-1.5"
+            title="Execute the task and immediately snapshot the result"
+          >
+            {runningSnap
+              ? <RefreshCw size={13} className="animate-spin" />
+              : <Play size={13} />}
+            Run &amp; Snapshot
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => (showForm ? setShowForm(false) : openForm())}
+            disabled={!selectedTaskId}
+            className="text-xs"
+          >
+            <Plus size={13} /> New Snapshot
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+        {/* Task selector */}
+        <div className="space-y-2">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Select Task
+          </h2>
+          <ScrollArea className="h-[calc(100vh-220px)] pr-1">
+            <div className="space-y-1.5">
+              {tasks.length === 0 && (
+                <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">
+                  No tasks found
+                </div>
+              )}
+              {tasks.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setSelectedTaskId(t.id)}
+                  className={cn(
+                    "w-full rounded-lg border px-3 py-2.5 text-left transition-all",
+                    selectedTaskId === t.id
+                      ? "border-indigo-500/40 bg-indigo-500/10 shadow-sm"
+                      : "border-border bg-card hover:border-border hover:bg-muted/50"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <Box size={12} className="shrink-0 text-muted-foreground" />
+                    <p className="truncate text-xs font-medium text-foreground">{t.name}</p>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "text-[10px] font-semibold rounded-full px-1.5 py-0.5",
+                        t.status === "running"
+                          ? "bg-emerald-500/15 text-emerald-400"
+                          : t.status === "failed"
+                          ? "bg-red-500/15 text-red-400"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {t.status}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{formatBytes(t.file_size_bytes)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+
+        {/* Right panel */}
+        <div className="space-y-4">
+          {/* Create form */}
+          {showForm && selectedTaskId && (
+            <Card className="border-indigo-500/30 bg-indigo-500/5">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium text-primary flex items-center gap-2">
+                    <Camera size={14} /> Create Snapshot
+                    {selectedTask && (
+                      <span className="text-indigo-400 font-normal"> — {selectedTask.name}</span>
+                    )}
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground h-7"
+                    onClick={autoPopulate}
+                    title="Fill from last execution log"
+                  >
+                    <RefreshCw size={12} /> Auto-fill from log
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      Memory (MB)
+                    </label>
+                    <Input
+                      type="number"
+                      value={memoryMb}
+                      onChange={(e) => setMemoryMb(e.target.value)}
+                      className="mt-1 h-8 text-xs"
+                      min="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      Instructions
+                    </label>
+                    <Input
+                      type="number"
+                      value={instructions}
+                      onChange={(e) => setInstructions(e.target.value)}
+                      className="mt-1 h-8 text-xs"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      Stack Depth
+                    </label>
+                    <Input
+                      type="number"
+                      value={stackDepth}
+                      onChange={(e) => setStackDepth(e.target.value)}
+                      className="mt-1 h-8 text-xs"
+                      min="0"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Globals JSON
+                  </label>
+                  <textarea
+                    value={globalsJson}
+                    onChange={(e) => setGlobalsJson(e.target.value)}
+                    rows={3}
+                    className="mt-1 w-full rounded-md border border-border bg-muted/30 px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    spellCheck={false}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Note (optional)
+                  </label>
+                  <Input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Describe this snapshot…"
+                    className="mt-1 h-8 text-xs"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowForm(false)}
+                    className="text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleCreate}
+                    disabled={creating}
+                    className="text-xs"
+                  >
+                    {creating
+                      ? <RefreshCw size={12} className="animate-spin" />
+                      : <Camera size={12} />}
+                    {creating ? "Saving…" : "Save Snapshot"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Search + count bar */}
+          {selectedTaskId && !loading && (
+            <div className="flex items-center gap-3">
+              <div className="relative flex-1 max-w-xs">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Filter by note…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-7 h-8 text-xs"
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+              <Badge variant="secondary" className="text-[10px] shrink-0">
+                {filteredSnapshots.length} snapshot{filteredSnapshots.length !== 1 ? "s" : ""}
+              </Badge>
+            </div>
+          )}
+
+          {/* Snapshot list */}
+          {!selectedTaskId ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                <Camera size={32} className="text-muted-foreground mb-3" />
+                <p className="text-sm font-medium text-muted-foreground">Select a task to view snapshots</p>
+              </CardContent>
+            </Card>
+          ) : loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />
+              ))}
+            </div>
+          ) : filteredSnapshots.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                <Layers size={32} className="text-muted-foreground mb-3" />
+                <p className="text-sm font-medium text-muted-foreground">
+                  {search ? "No snapshots match your search" : "No snapshots yet"}
+                </p>
+                {!search && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Click &quot;New Snapshot&quot; or &quot;Run &amp; Snapshot&quot; to capture execution state
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {filteredSnapshots.map((snap) => {
+                const globalsExpanded = expandedGlobals.has(snap.id);
+                let parsedGlobals: Record<string, unknown> = {};
+                let globalsKeys = 0;
+                try {
+                  parsedGlobals = JSON.parse(snap.globals_json);
+                  globalsKeys = Object.keys(parsedGlobals).length;
+                } catch { /* ignore */ }
+
+                return (
+                  <Card key={snap.id} className="transition-shadow hover:shadow-md">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-xs text-indigo-400 bg-indigo-500/10 rounded px-2 py-0.5">
+                              #{snap.id.slice(0, 8)}
+                            </span>
+                            {snap.note && (
+                              <span className="text-xs text-muted-foreground italic truncate max-w-[200px]">
+                                {snap.note}
+                              </span>
+                            )}
+                            <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
+                              <Clock size={10} />
+                              {timeAgo(snap.captured_at ?? snap.created_at ?? "")}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <SnapStat
+                              icon={<HardDrive size={12} />}
+                              label="Memory"
+                              value={`${snap.memory_mb} MB`}
+                              color="text-sky-400"
+                            />
+                            <SnapStat
+                              icon={<Cpu size={12} />}
+                              label="Instructions"
+                              value={formatNumber(snap.instructions)}
+                              color="text-violet-400"
+                            />
+                            <SnapStat
+                              icon={<Layers size={12} />}
+                              label="Stack Depth"
+                              value={String(snap.stack_depth)}
+                              color="text-emerald-400"
+                            />
+                            <SnapStat
+                              icon={<Info size={12} />}
+                              label="Globals"
+                              value={globalsKeys === 0 ? "empty" : `${globalsKeys} keys`}
+                              color="text-amber-400"
+                            />
+                          </div>
+
+                          {/* View Globals expandable */}
+                          {snap.globals_json && snap.globals_json !== "{}" && (
+                            <div className="mt-3">
+                              <button
+                                onClick={() => toggleGlobals(snap.id)}
+                                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                {globalsExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                {globalsExpanded ? "Hide Globals" : "View Globals"}
+                              </button>
+                              {globalsExpanded && (
+                                <pre className="mt-2 rounded-md border border-border bg-muted/30 p-3 text-[10px] font-mono text-foreground overflow-auto max-h-40">
+                                  {JSON.stringify(parsedGlobals, null, 2)}
+                                </pre>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-red-500"
+                          disabled={deletingId === snap.id}
+                          onClick={() => handleDelete(snap.id)}
+                          title="Delete snapshot"
+                        >
+                          {deletingId === snap.id
+                            ? <RefreshCw size={13} className="animate-spin" />
+                            : <Trash2 size={13} />}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SnapStat({
+  icon,
+  label,
+  value,
+  color,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  color: string;
+}) {
+  return (
+    <div className="rounded-lg bg-muted/30 border border-border px-3 py-2">
+      <div className={cn("flex items-center gap-1 text-[10px] font-medium mb-0.5", color)}>
+        {icon} {label}
+      </div>
+      <p className="text-xs font-semibold text-foreground truncate">{value}</p>
+    </div>
+  );
+}
