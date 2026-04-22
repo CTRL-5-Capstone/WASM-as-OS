@@ -125,6 +125,12 @@ export default function TaskList() {
         <Info size={40} strokeWidth={1.5} aria-hidden="true" className="mx-auto mb-3 opacity-40" />
         <p className="text-lg font-medium">No tasks yet</p>
         <p className="text-sm mt-1">Upload a .wasm file to get started</p>
+        <a
+          href="/tasks"
+          className="inline-block mt-3 text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+        >
+          Go to Tasks →
+        </a>
       </div>
     );
   }
@@ -138,15 +144,23 @@ export default function TaskList() {
             ({tasks.length})
           </span>
         </h2>
-        <Button
-          onClick={refresh}
-          variant="ghost"
-          size="sm"
-          aria-label="Refresh task list"
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          <RefreshCw size={14} strokeWidth={2.5} aria-hidden="true" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={refresh}
+            variant="ghost"
+            size="sm"
+            aria-label="Refresh task list"
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            <RefreshCw size={14} strokeWidth={2.5} aria-hidden="true" /> Refresh
+          </Button>
+          <a
+            href="/tasks"
+            className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+          >
+            View all →
+          </a>
+        </div>
       </div>
 
       <ul role="list" className="space-y-2">
@@ -175,32 +189,28 @@ export default function TaskList() {
 
               {/* Actions */}
               <div className="flex items-center gap-1" role="group" aria-label={`Actions for ${task.name}`}>
-                {task.status.toLowerCase() !== "running" && (
+                {actionLoading === task.id ? (
+                  <>
+                    <Button
+                      onClick={() => handleStop(task.id)}
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Stop ${task.name}`}
+                      className="text-amber-400 hover:bg-amber-500/15 hover:text-amber-300 h-8 w-8"
+                    >
+                      <Square size={15} strokeWidth={2.5} aria-hidden="true" />
+                    </Button>
+                  </>
+                ) : (
                   <Button
                     onClick={() => handleStart(task.id)}
-                    disabled={actionLoading === task.id}
+                    disabled={!!actionLoading}
                     variant="ghost"
                     size="icon"
-                    aria-label={actionLoading === task.id ? `Starting ${task.name}` : `Start ${task.name}`}
+                    aria-label={`Start ${task.name}`}
                     className="text-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-300 h-8 w-8"
                   >
-                    {actionLoading === task.id ? (
-                      <RefreshCw size={15} strokeWidth={2.5} aria-hidden="true" className="animate-spin" />
-                    ) : (
-                      <Play size={15} strokeWidth={2.5} aria-hidden="true" />
-                    )}
-                  </Button>
-                )}
-                {task.status.toLowerCase() === "running" && (
-                  <Button
-                    onClick={() => handleStop(task.id)}
-                    disabled={actionLoading === task.id}
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Stop ${task.name}`}
-                    className="text-amber-400 hover:bg-amber-500/15 hover:text-amber-300 h-8 w-8"
-                  >
-                    <Square size={15} strokeWidth={2.5} aria-hidden="true" />
+                    <Play size={15} strokeWidth={2.5} aria-hidden="true" />
                   </Button>
                 )}
                 <Button
