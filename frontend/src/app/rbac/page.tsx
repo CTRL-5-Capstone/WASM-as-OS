@@ -23,10 +23,10 @@ import { toast } from "sonner";
 type Role = "admin" | "operator" | "viewer" | "auditor";
 
 const ROLE_COLORS: Record<Role, string> = {
-  admin:    "bg-red-50 text-red-700 border-red-200",
-  operator: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  viewer:   "bg-emerald-50 text-emerald-700 border-emerald-200",
-  auditor:  "bg-amber-50 text-amber-700 border-amber-200",
+  admin:    "bg-red-500/10 text-red-400 border-red-500/20",
+  operator: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+  viewer:   "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  auditor:  "bg-amber-500/10 text-amber-400 border-amber-500/20",
 };
 
 const ROLE_PERMS: Record<Role, string[]> = {
@@ -128,10 +128,10 @@ export default function RBACPage() {
     <div className="animate-fade-in space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold gradient-text flex items-center gap-2">
-            <Shield size={26} /> RBAC & Audit
+          <h1 className="text-2xl font-bold gradient-text flex items-center gap-2">
+            <Shield size={20} /> RBAC & Audit
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Tenant management, role-based access control, and full audit trail
           </p>
         </div>
@@ -143,8 +143,8 @@ export default function RBACPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Roles overview */}
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-            <Key size={13} className="text-indigo-500" /> Role Definitions
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+            <Key size={13} className="text-indigo-400" /> Role Definitions
           </h2>
           {(Object.keys(ROLE_PERMS) as Role[]).map((role) => (
             <Card key={role}>
@@ -156,8 +156,8 @@ export default function RBACPage() {
                 </div>
                 <ul className="space-y-1">
                   {ROLE_PERMS[role].map((p) => (
-                    <li key={p} className="flex items-center gap-1.5 text-xs text-slate-600">
-                      <div className="w-1 h-1 rounded-full bg-slate-400 shrink-0" />
+                    <li key={p} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <div className="w-1 h-1 rounded-full bg-muted-foreground shrink-0" />
                       {p}
                     </li>
                   ))}
@@ -169,44 +169,44 @@ export default function RBACPage() {
 
         {/* Tenants */}
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-            <UserCheck size={13} className="text-indigo-500" /> Tenants
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+            <UserCheck size={13} className="text-indigo-400" /> Tenants
           </h2>
 
           {loadingTenants ? (
             <div className="space-y-2">
-              {[1, 2, 3].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-slate-100" />)}
+              {[1, 2, 3].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-muted" />)}
             </div>
           ) : (
             <ScrollArea className="max-h-80">
               <div className="space-y-2 pr-1">
                 {tenants.map((t) => (
-                  <Card key={t.id} className={cn("transition-all", t.active && "border-emerald-200")}>
+                  <Card key={t.id} className={cn("transition-all", t.active && "border-emerald-500/30")}>
                     <CardContent className="p-3 flex items-center gap-3">
                       <div className={cn(
                         "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                        t.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                        t.active ? "bg-emerald-500/15 text-emerald-400" : "bg-muted text-muted-foreground"
                       )}>
                         {t.name[0].toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-slate-800 truncate">{t.name}</p>
+                          <p className="text-sm font-medium text-foreground truncate">{t.name}</p>
                           {t.active && (
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                           )}
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400 font-mono">
+                          <span className="text-[10px] text-muted-foreground font-mono">
                             id: {t.id.slice(0, 8)}…
                           </span>
-                          <span className="text-[10px] text-slate-400">max {t.max_tasks} tasks</span>
+                          <span className="text-[10px] text-muted-foreground">max {t.max_tasks} tasks</span>
                         </div>
                       </div>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-slate-400 hover:text-red-500"
+                        className="h-7 w-7 text-muted-foreground hover:text-red-500"
                         disabled={deletingId === t.id}
                         onClick={() => removeTenant(t.id, t.name)}
                       >
@@ -219,7 +219,7 @@ export default function RBACPage() {
                 ))}
 
                 {tenants.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-xs text-slate-400">
+                  <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
                     No tenants found
                   </div>
                 )}
@@ -228,9 +228,9 @@ export default function RBACPage() {
           )}
 
           {/* Add tenant form */}
-          <Card className="border-dashed border-slate-300">
+          <Card className="border-dashed border-border">
             <CardContent className="p-3 space-y-2">
-              <p className="text-xs font-medium text-slate-500 flex items-center gap-1">
+              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                 <Plus size={11} /> Add Tenant
               </p>
               <Input
@@ -259,22 +259,22 @@ export default function RBACPage() {
 
         {/* Security Alerts */}
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-            <Lock size={13} className="text-red-500" /> Recent Audit Activity
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+            <Lock size={13} className="text-red-400" /> Recent Audit Activity
           </h2>
           <Card>
             <CardContent className="p-0">
-              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+              <div className="max-h-80 overflow-y-auto divide-y divide-border">
                 {loadingAudit ? (
-                  <div className="p-6 text-center text-xs text-slate-400">Loading…</div>
+                  <div className="p-6 text-center text-xs text-muted-foreground">Loading…</div>
                 ) : auditLogs.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-slate-400">No audit entries yet</div>
+                  <div className="p-6 text-center text-xs text-muted-foreground">No audit entries yet</div>
                 ) : auditLogs.slice(0, 20).map((e) => (
                   <div key={e.id} className="px-3 py-2 text-xs flex items-start gap-2">
                     <span className="w-1.5 h-1.5 rounded-full shrink-0 mt-1 bg-sky-500" />
                     <div className="min-w-0">
-                      <p className="text-slate-700 truncate">{e.action}</p>
-                      <div className="flex gap-2 text-slate-400">
+                      <p className="text-foreground truncate">{e.action}</p>
+                      <div className="flex gap-2 text-muted-foreground">
                         {e.resource && <span>{e.resource}</span>}
                         <span>{timeAgo(e.ts)}</span>
                       </div>
@@ -290,10 +290,10 @@ export default function RBACPage() {
       {/* Audit log table */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-            <Activity size={13} className="text-indigo-500" /> Audit Log
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+            <Activity size={13} className="text-indigo-400" /> Audit Log
             {auditTotal > 0 && (
-              <span className="ml-1 rounded-full bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5">
+              <span className="ml-1 rounded-full bg-muted text-muted-foreground text-[10px] px-2 py-0.5">
                 {auditTotal} total
               </span>
             )}
@@ -314,8 +314,8 @@ export default function RBACPage() {
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead className="border-b border-slate-200">
-                  <tr className="text-left text-[10px] uppercase text-slate-500">
+                <thead className="border-b border-border">
+                  <tr className="text-left text-[10px] uppercase text-muted-foreground">
                     <th className="px-4 py-2.5">Timestamp</th>
                     <th className="px-4 py-2.5">User</th>
                     <th className="px-4 py-2.5">Action</th>
@@ -323,30 +323,30 @@ export default function RBACPage() {
                     <th className="px-4 py-2.5">IP</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border">
                   {loadingAudit ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-slate-400">Loading audit log…</td>
+                      <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Loading audit log…</td>
                     </tr>
                   ) : filteredAudit.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                      <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
                         No audit entries found
                       </td>
                     </tr>
                   ) : filteredAudit.map((e) => (
-                    <tr key={e.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-2 font-mono text-slate-500 whitespace-nowrap">
+                    <tr key={e.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2 font-mono text-muted-foreground whitespace-nowrap">
                         {new Date(e.ts).toLocaleString()}
                       </td>
-                      <td className="px-4 py-2 font-medium text-slate-700">
+                      <td className="px-4 py-2 font-medium text-foreground">
                         {e.user_name ?? e.tenant_id ?? "—"}
                       </td>
-                      <td className="px-4 py-2 text-slate-600 max-w-xs truncate">{e.action}</td>
-                      <td className="px-4 py-2 text-slate-500">
+                      <td className="px-4 py-2 text-muted-foreground max-w-xs truncate">{e.action}</td>
+                      <td className="px-4 py-2 text-muted-foreground">
                         {e.resource ?? "—"}
                       </td>
-                      <td className="px-4 py-2 font-mono text-slate-400">{e.ip_addr ?? "—"}</td>
+                      <td className="px-4 py-2 font-mono text-muted-foreground">{e.ip_addr ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -354,8 +354,8 @@ export default function RBACPage() {
             </div>
             {/* Pagination */}
             {auditTotal > 50 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-                <span className="text-xs text-slate-500">
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+                <span className="text-xs text-muted-foreground">
                   Page {auditPage} of {Math.ceil(auditTotal / 50)}
                 </span>
                 <div className="flex gap-2">
