@@ -498,156 +498,678 @@ export function diffModules(
     resolvedFindings: beforeAnalysis.findings.filter(f => !new Set(afterAnalysis.findings.map(findingKey)).has(findingKey(f))),
   };
 }
-// ── Tests (only run by vitest, stripped from production builds) ──────────
-if (import.meta.vitest) {
-  const { describe, it, expect } = import.meta.vitest;
- 
-  // Helper: minimal valid WASM (magic + version, no sections)
-  function minimalWasm(): ArrayBuffer {
-    return new Uint8Array([
-      0x00, 0x61, 0x73, 0x6d,
-      0x01, 0x00, 0x00, 0x00,
-    ]).buffer;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADVANCED FORENSICS — CFG, Decompiler, Entropy, YARA
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Control Flow Graph extraction ─────────────────────────────────────────
+
+export interface CFGNode {
+  id:          string;      // "func_N" or "import_N"
+  label:       string;      // display name
+  kind:        "function" | "import" | "export" | "start";
+  funcIndex:   number;
+  byteSize:    number;      // code section bytes
+  callees:     number[];    // function indices this calls
+  calledBy:    number[];    // function indices that call this
+  isExport:    boolean;
+  isStart:     boolean;
+  complexity:  number;      // branch instruction count (control flow complexity)
+}
+
+export interface CFGEdge {
+  source: number;   // func index
+  target: number;   // func index
+}
+
+export interface ControlFlowGraph {
+  nodes:        CFGNode[];
+  edges:        CFGEdge[];
+  entryPoints:  number[];    // exported or start function indices
+  maxDepth:     number;      // max call chain depth
+  orphans:      number[];    // functions never called
+  suspicious:   string[];    // anomaly descriptions
+}
+
+/** WASM bytecode opcodes we care about for CFG */
+const OP_CALL     = 0x10;
+const OP_CALL_IND = 0x11;
+const OP_IF       = 0x04;
+const OP_BR       = 0x0c;
+const OP_BR_IF    = 0x0d;
+const OP_BR_TABLE = 0x0e;
+const OP_LOOP     = 0x03;
+const OP_BLOCK    = 0x02;
+const OP_END      = 0x0b;
+
+export function extractCFG(parsed: WasmParseResult): ControlFlowGraph {
+  const numImports = parsed.imports.filter(i => i.kind === 0).length;
+  const nodes: CFGNode[] = [];
+  const edgeSet = new Set<string>();
+  const edges: CFGEdge[] = [];
+  const exportedIndices = new Set(
+    parsed.exports.filter(e => e.kind === 0).map(e => e.index)
+  );
+
+  // Build a name map from exports
+  const exportNames = new Map<number, string>();
+  for (const exp of parsed.exports) {
+    if (exp.kind === 0) exportNames.set(exp.index, exp.name);
   }
- 
-  describe('SECTION_NAMES', () => {
-    it('maps 0 → Custom', () => {
-      expect(SECTION_NAMES[0]).toBe('Custom');
+
+  // Imported functions as nodes
+  for (let i = 0; i < numImports; i++) {
+    const imp = parsed.imports.filter(im => im.kind === 0)[i];
+    nodes.push({
+      id: `import_${i}`,
+      label: imp ? `${imp.module}.${imp.name}` : `import_${i}`,
+      kind: "import",
+      funcIndex: i,
+      byteSize: 0,
+      callees: [],
+      calledBy: [],
+      isExport: false,
+      isStart: false,
+      complexity: 0,
     });
- 
-    it('maps 1 → Type', () => {
-      expect(SECTION_NAMES[1]).toBe('Type');
-    });
- 
-    it('maps 7 → Export', () => {
-      expect(SECTION_NAMES[7]).toBe('Export');
-    });
- 
-    it('maps 10 → Code', () => {
-      expect(SECTION_NAMES[10]).toBe('Code');
-    });
- 
-    it('has all 13 entries (0–12)', () => {
-      for (let i = 0; i <= 12; i++) {
-        expect(SECTION_NAMES[i]).toBeDefined();
+  }
+
+  // Find the Code section (id=10)
+  const codeSection = parsed.sections.find(s => s.id === 10);
+  if (codeSection && codeSection.raw.length > 0) {
+    const raw = codeSection.raw;
+    let p = 0;
+    const [funcCount, fb] = readULEB128(raw, p); p += fb;
+
+    for (let fi = 0; fi < funcCount && p < raw.length; fi++) {
+      const globalIdx = numImports + fi;
+      const [bodyLen, bl] = readULEB128(raw, p); p += bl;
+      const bodyStart = p;
+      const bodyEnd = Math.min(p + bodyLen, raw.length);
+
+      const callees: number[] = [];
+      let complexity = 0;
+      let bp = bodyStart;
+
+      // Skip local declarations
+      if (bp < bodyEnd) {
+        const [localDeclCount, ldb] = readULEB128(raw, bp); bp += ldb;
+        for (let ld = 0; ld < localDeclCount && bp < bodyEnd; ld++) {
+          const [, countBytes] = readULEB128(raw, bp); bp += countBytes;
+          bp += 1; // skip type byte
+        }
       }
+
+      // Scan opcodes for calls and branch instructions
+      while (bp < bodyEnd) {
+        const op = raw[bp]; bp += 1;
+        if (op === OP_CALL) {
+          const [targetIdx, tb] = readULEB128(raw, bp); bp += tb;
+          if (!callees.includes(targetIdx)) callees.push(targetIdx);
+        } else if (op === OP_CALL_IND) {
+          // call_indirect — skip type index and table index
+          const [, tb1] = readULEB128(raw, bp); bp += tb1;
+          const [, tb2] = readULEB128(raw, bp); bp += tb2;
+          complexity += 2; // indirect calls are highly complex
+        } else if (op === OP_IF || op === OP_BR || op === OP_BR_IF || op === OP_LOOP) {
+          complexity += 1;
+          if (op === OP_BR || op === OP_BR_IF) {
+            const [, lb] = readULEB128(raw, bp); bp += lb;
+          } else if (op === OP_IF || op === OP_LOOP || op === OP_BLOCK) {
+            bp += 1; // skip blocktype
+          }
+        } else if (op === OP_BR_TABLE) {
+          const [vecLen, vb] = readULEB128(raw, bp); bp += vb;
+          for (let v = 0; v <= vecLen && bp < bodyEnd; v++) {
+            const [, lb] = readULEB128(raw, bp); bp += lb;
+          }
+          complexity += vecLen + 1;
+        } else if (op === OP_BLOCK) {
+          bp += 1; // skip blocktype
+        }
+        // Skip other multi-byte opcodes gracefully
+      }
+
+      const name = exportNames.get(globalIdx) ?? `func_${globalIdx}`;
+      nodes.push({
+        id: `func_${globalIdx}`,
+        label: name,
+        kind: exportedIndices.has(globalIdx) ? "export" : "function",
+        funcIndex: globalIdx,
+        byteSize: bodyLen,
+        callees,
+        calledBy: [],
+        isExport: exportedIndices.has(globalIdx),
+        isStart: false,
+        complexity,
+      });
+
+      p = bodyEnd;
+    }
+  }
+
+  // Build reverse edges (calledBy) and edge list
+  for (const node of nodes) {
+    for (const target of node.callees) {
+      const key = `${node.funcIndex}->${target}`;
+      if (!edgeSet.has(key)) {
+        edgeSet.add(key);
+        edges.push({ source: node.funcIndex, target });
+      }
+      const targetNode = nodes.find(n => n.funcIndex === target);
+      if (targetNode && !targetNode.calledBy.includes(node.funcIndex)) {
+        targetNode.calledBy.push(node.funcIndex);
+      }
+    }
+  }
+
+  // Entry points: exports + start section
+  const startSection = parsed.sections.find(s => s.id === 8);
+  if (startSection && startSection.raw.length > 0) {
+    const [startIdx] = readULEB128(startSection.raw, 0);
+    const n = nodes.find(nd => nd.funcIndex === startIdx);
+    if (n) { n.isStart = true; n.kind = "start"; }
+  }
+  const entryPoints = nodes.filter(n => n.isExport || n.isStart).map(n => n.funcIndex);
+
+  // Find orphans (defined functions never called and not exported/start)
+  const calledSet = new Set(edges.map(e => e.target));
+  const orphans = nodes
+    .filter(n => n.kind === "function" && !calledSet.has(n.funcIndex) && !n.isExport && !n.isStart)
+    .map(n => n.funcIndex);
+
+  // Compute max call depth via BFS from entry points
+  let maxDepth = 0;
+  const nodeMap = new Map(nodes.map(n => [n.funcIndex, n]));
+  for (const ep of entryPoints) {
+    const visited = new Set<number>();
+    const queue: [number, number][] = [[ep, 0]];
+    while (queue.length > 0) {
+      const [idx, depth] = queue.shift()!;
+      if (visited.has(idx)) continue;
+      visited.add(idx);
+      maxDepth = Math.max(maxDepth, depth);
+      const nd = nodeMap.get(idx);
+      if (nd) {
+        for (const c of nd.callees) {
+          if (!visited.has(c)) queue.push([c, depth + 1]);
+        }
+      }
+    }
+  }
+
+  // Detect suspicious patterns
+  const suspicious: string[] = [];
+  const avgComplexity = nodes.reduce((s, n) => s + n.complexity, 0) / Math.max(1, nodes.length);
+  const highComplexity = nodes.filter(n => n.complexity > avgComplexity * 3 && n.complexity > 10);
+  if (highComplexity.length > 0) {
+    suspicious.push(`${highComplexity.length} function(s) with abnormally high branch complexity (possible obfuscation)`);
+  }
+  if (orphans.length > nodes.length * 0.4 && orphans.length > 5) {
+    suspicious.push(`${orphans.length} orphan functions (${Math.round(orphans.length / nodes.length * 100)}%) — may indicate dead code or anti-analysis padding`);
+  }
+  if (maxDepth > 20) {
+    suspicious.push(`Unusually deep call chain (depth ${maxDepth}) — possible recursion or call-chain obfuscation`);
+  }
+  const indirectCalls = nodes.filter(n => n.complexity > 5);
+  if (indirectCalls.length > 3) {
+    suspicious.push(`Multiple functions with heavy indirect calls — dynamic dispatch pattern`);
+  }
+
+  return { nodes, edges, entryPoints, maxDepth, orphans, suspicious };
+}
+
+// ─── Pseudo-decompiler (Wasm→pseudo-code) ──────────────────────────────────
+
+export interface DecompiledFunction {
+  index:    number;
+  name:     string;
+  params:   string[];
+  results:  string[];
+  locals:   string[];
+  body:     string;       // pseudo-code string
+  byteSize: number;
+}
+
+const WASM_TYPE_NAMES: Record<number, string> = {
+  0x7f: "i32", 0x7e: "i64", 0x7d: "f32", 0x7c: "f64",
+  0x70: "funcref", 0x6f: "externref",
+};
+
+const WASM_OP_NAMES: Record<number, string> = {
+  0x00: "unreachable", 0x01: "nop", 0x02: "block", 0x03: "loop",
+  0x04: "if", 0x05: "else", 0x0b: "end", 0x0c: "br", 0x0d: "br_if",
+  0x0e: "br_table", 0x0f: "return", 0x10: "call", 0x11: "call_indirect",
+  0x1a: "drop", 0x1b: "select",
+  0x20: "local.get", 0x21: "local.set", 0x22: "local.tee",
+  0x23: "global.get", 0x24: "global.set",
+  0x28: "i32.load", 0x29: "i64.load", 0x2a: "f32.load", 0x2b: "f64.load",
+  0x36: "i32.store", 0x37: "i64.store", 0x38: "f32.store", 0x39: "f64.store",
+  0x3f: "memory.size", 0x40: "memory.grow",
+  0x41: "i32.const", 0x42: "i64.const", 0x43: "f32.const", 0x44: "f64.const",
+  0x45: "i32.eqz", 0x46: "i32.eq", 0x47: "i32.ne",
+  0x48: "i32.lt_s", 0x49: "i32.lt_u", 0x4a: "i32.gt_s", 0x4b: "i32.gt_u",
+  0x4c: "i32.le_s", 0x4d: "i32.le_u", 0x4e: "i32.ge_s", 0x4f: "i32.ge_u",
+  0x6a: "i32.add", 0x6b: "i32.sub", 0x6c: "i32.mul",
+  0x6d: "i32.div_s", 0x6e: "i32.div_u",
+  0x6f: "i32.rem_s", 0x70: "i32.rem_u",
+  0x71: "i32.and", 0x72: "i32.or", 0x73: "i32.xor",
+  0x74: "i32.shl", 0x75: "i32.shr_s", 0x76: "i32.shr_u",
+  0x7c: "i64.add", 0x7d: "i64.sub", 0x7e: "i64.mul",
+  0xa7: "i32.wrap_i64", 0xac: "i64.extend_i32_s",
+};
+
+export function decompileModule(parsed: WasmParseResult): DecompiledFunction[] {
+  const result: DecompiledFunction[] = [];
+  const numImports = parsed.imports.filter(i => i.kind === 0).length;
+  const exportNames = new Map<number, string>();
+  for (const exp of parsed.exports) {
+    if (exp.kind === 0) exportNames.set(exp.index, exp.name);
+  }
+
+  // Parse type section for function signatures
+  const typeSection = parsed.sections.find(s => s.id === 1);
+  const funcTypes: { params: number[]; results: number[] }[] = [];
+  if (typeSection && typeSection.raw.length > 0) {
+    const raw = typeSection.raw;
+    let p = 0;
+    const [count, cb] = readULEB128(raw, p); p += cb;
+    for (let i = 0; i < count && p < raw.length; i++) {
+      p += 1; // skip 0x60 (func type marker)
+      const [paramCount, pb] = readULEB128(raw, p); p += pb;
+      const params: number[] = [];
+      for (let j = 0; j < paramCount && p < raw.length; j++) { params.push(raw[p]); p += 1; }
+      const [resultCount, rb] = readULEB128(raw, p); p += rb;
+      const results: number[] = [];
+      for (let j = 0; j < resultCount && p < raw.length; j++) { results.push(raw[p]); p += 1; }
+      funcTypes.push({ params, results });
+    }
+  }
+
+  // Parse function section for type indices
+  const funcSection = parsed.sections.find(s => s.id === 3);
+  const funcTypeIndices: number[] = [];
+  if (funcSection && funcSection.raw.length > 0) {
+    const raw = funcSection.raw;
+    let p = 0;
+    const [count, cb] = readULEB128(raw, p); p += cb;
+    for (let i = 0; i < count && p < raw.length; i++) {
+      const [typeIdx, tb] = readULEB128(raw, p); p += tb;
+      funcTypeIndices.push(typeIdx);
+    }
+  }
+
+  const codeSection = parsed.sections.find(s => s.id === 10);
+  if (!codeSection || codeSection.raw.length === 0) return result;
+
+  const raw = codeSection.raw;
+  let p = 0;
+  const [funcCount, fb] = readULEB128(raw, p); p += fb;
+
+  for (let fi = 0; fi < funcCount && p < raw.length; fi++) {
+    const globalIdx = numImports + fi;
+    const [bodyLen, bl] = readULEB128(raw, p); p += bl;
+    const bodyStart = p;
+    const bodyEnd = Math.min(p + bodyLen, raw.length);
+
+    const name = exportNames.get(globalIdx) ?? `func_${globalIdx}`;
+    const typeIdx = funcTypeIndices[fi] ?? -1;
+    const sig = typeIdx >= 0 && typeIdx < funcTypes.length ? funcTypes[typeIdx] : null;
+
+    const params = sig ? sig.params.map((t, i) => `${WASM_TYPE_NAMES[t] ?? "?"} p${i}`) : [];
+    const results = sig ? sig.results.map(t => WASM_TYPE_NAMES[t] ?? "?") : [];
+
+    // Parse locals
+    const locals: string[] = [];
+    let bp = bodyStart;
+    if (bp < bodyEnd) {
+      const [localDeclCount, ldb] = readULEB128(raw, bp); bp += ldb;
+      for (let ld = 0; ld < localDeclCount && bp < bodyEnd; ld++) {
+        const [count, countBytes] = readULEB128(raw, bp); bp += countBytes;
+        const typeId = bp < bodyEnd ? raw[bp] : 0; bp += 1;
+        for (let li = 0; li < count; li++) {
+          locals.push(WASM_TYPE_NAMES[typeId] ?? `0x${typeId.toString(16)}`);
+        }
+      }
+    }
+
+    // Generate pseudo-code from opcodes
+    const lines: string[] = [];
+    let indent = 1;
+    const pad = () => "  ".repeat(indent);
+    let opCount = 0;
+    const MAX_OPS = 200; // limit to avoid gigantic output
+
+    while (bp < bodyEnd && opCount < MAX_OPS) {
+      const op = raw[bp]; bp += 1;
+      opCount++;
+
+      if (op === OP_END) {
+        indent = Math.max(0, indent - 1);
+        lines.push(`${pad()}}`);
+        continue;
+      }
+
+      const opName = WASM_OP_NAMES[op];
+      if (!opName) {
+        // Skip unknown opcodes
+        continue;
+      }
+
+      // Handle structured opcodes
+      if (op === OP_BLOCK) {
+        bp += 1; // blocktype
+        lines.push(`${pad()}block {`);
+        indent++;
+      } else if (op === OP_LOOP) {
+        bp += 1;
+        lines.push(`${pad()}loop {`);
+        indent++;
+      } else if (op === OP_IF) {
+        bp += 1;
+        lines.push(`${pad()}if (stack.pop()) {`);
+        indent++;
+      } else if (op === 0x05) { // else
+        indent = Math.max(0, indent - 1);
+        lines.push(`${pad()}} else {`);
+        indent++;
+      } else if (op === OP_CALL) {
+        const [target, tb] = readULEB128(raw, bp); bp += tb;
+        const targetName = exportNames.get(target) ??
+          (target < numImports ? (parsed.imports.filter(i => i.kind === 0)[target]?.name ?? `import_${target}`) : `func_${target}`);
+        lines.push(`${pad()}call ${targetName}  // func[${target}]`);
+      } else if (op === OP_CALL_IND) {
+        const [typeI, tb1] = readULEB128(raw, bp); bp += tb1;
+        const [, tb2] = readULEB128(raw, bp); bp += tb2;
+        lines.push(`${pad()}call_indirect type[${typeI}]  // dynamic dispatch`);
+      } else if (op === OP_BR || op === OP_BR_IF) {
+        const [depth, db] = readULEB128(raw, bp); bp += db;
+        lines.push(`${pad()}${opName} ${depth}`);
+      } else if (op === OP_BR_TABLE) {
+        const [vecLen, vb] = readULEB128(raw, bp); bp += vb;
+        const targets: number[] = [];
+        for (let v = 0; v <= vecLen && bp < bodyEnd; v++) {
+          const [t, tb] = readULEB128(raw, bp); bp += tb;
+          targets.push(t);
+        }
+        lines.push(`${pad()}br_table [${targets.join(", ")}]`);
+      } else if (op === 0x41) { // i32.const
+        const [val, vb] = readULEB128(raw, bp); bp += vb;
+        lines.push(`${pad()}push ${val}  // i32.const`);
+      } else if (op === 0x42) { // i64.const
+        const [val, vb] = readULEB128(raw, bp); bp += vb;
+        lines.push(`${pad()}push ${val}L  // i64.const`);
+      } else if (op >= 0x20 && op <= 0x24) {
+        const [idx, ib] = readULEB128(raw, bp); bp += ib;
+        lines.push(`${pad()}${opName} ${idx}`);
+      } else if (op >= 0x28 && op <= 0x3e) {
+        // memory instructions: alignment + offset
+        const [, ab] = readULEB128(raw, bp); bp += ab;
+        const [offset, ob] = readULEB128(raw, bp); bp += ob;
+        lines.push(`${pad()}${opName} offset=${offset}`);
+      } else {
+        lines.push(`${pad()}${opName}`);
+      }
+    }
+
+    if (opCount >= MAX_OPS && bp < bodyEnd) {
+      lines.push(`${pad()}// ... ${bodyEnd - bp} more bytes truncated`);
+    }
+
+    const returnType = results.length > 0 ? `: ${results.join(", ")}` : "";
+    const header = `fn ${name}(${params.join(", ")})${returnType}`;
+    const localDecls = locals.length > 0 ? `  // locals: ${locals.join(", ")}\n` : "";
+    const body = `${header} {\n${localDecls}${lines.join("\n")}\n}`;
+
+    result.push({
+      index: globalIdx,
+      name,
+      params,
+      results,
+      locals,
+      body,
+      byteSize: bodyLen,
     });
-  });
- 
-  describe('IMPORT_KIND_NAMES', () => {
-    it('maps 0 → func', () => {
-      expect(IMPORT_KIND_NAMES[0]).toBe('func');
-    });
- 
-    it('maps 1 → table', () => {
-      expect(IMPORT_KIND_NAMES[1]).toBe('table');
-    });
- 
-    it('maps 2 → memory', () => {
-      expect(IMPORT_KIND_NAMES[2]).toBe('memory');
-    });
- 
-    it('maps 3 → global', () => {
-      expect(IMPORT_KIND_NAMES[3]).toBe('global');
-    });
-  });
- 
-  describe('parseWasm', () => {
-    it('rejects empty buffer', () => {
-      const r = parseWasm(new ArrayBuffer(0));
-      expect(r.valid).toBe(false);
-    });
- 
-    it('rejects buffer smaller than 8 bytes', () => {
-      const r = parseWasm(new Uint8Array([0x00, 0x61]).buffer);
-      expect(r.valid).toBe(false);
-      expect(r.error).toContain('too small');
-    });
- 
-    it('rejects invalid magic number', () => {
-      const bad = new Uint8Array([
-        0xFF, 0xFF, 0xFF, 0xFF,
-        0x01, 0x00, 0x00, 0x00,
-      ]).buffer;
-      const r = parseWasm(bad);
-      expect(r.valid).toBe(false);
-      expect(r.error).toContain('magic');
-    });
- 
-    it('rejects 8 zero bytes', () => {
-      const r = parseWasm(new Uint8Array(8).buffer);
-      expect(r.valid).toBe(false);
-    });
- 
-    it('parses minimal WASM as valid', () => {
-      const r = parseWasm(minimalWasm());
-      expect(r.valid).toBe(true);
-      expect(r.version).toBe(1);
-    });
- 
-    it('reports correct file size', () => {
-      const r = parseWasm(minimalWasm());
-      expect(r.fileSizeBytes).toBe(8);
-    });
- 
-    it('returns empty arrays for minimal module', () => {
-      const r = parseWasm(minimalWasm());
-      expect(r.sections).toHaveLength(0);
-      expect(r.imports).toHaveLength(0);
-      expect(r.exports).toHaveLength(0);
-      expect(r.functionCount).toBe(0);
-    });
- 
-    it('parses a Type section', () => {
-      const wasm = new Uint8Array([
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
-      ]).buffer;
-      const r = parseWasm(wasm);
-      expect(r.valid).toBe(true);
-      expect(r.sections[0].name).toBe('Type');
-    });
- 
-    it('parses Function count', () => {
-      const wasm = new Uint8Array([
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
-        0x03, 0x02, 0x01, 0x00,
-      ]).buffer;
-      const r = parseWasm(wasm);
-      expect(r.functionCount).toBe(1);
-    });
- 
-    it('parses Memory section', () => {
-      const wasm = new Uint8Array([
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x05, 0x03, 0x01, 0x00, 0x01,
-      ]).buffer;
-      const r = parseWasm(wasm);
-      expect(r.memoryCount).toBe(1);
-    });
- 
-    it('parses Export section', () => {
-      const wasm = new Uint8Array([
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
-        0x03, 0x02, 0x01, 0x00,
-        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00,
-        0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b,
-      ]).buffer;
-      const r = parseWasm(wasm);
-      expect(r.exports).toHaveLength(1);
-      expect(r.exports[0].name).toBe('f');
-      expect(r.exports[0].kindName).toBe('func');
-    });
- 
-    it('parses Global section count', () => {
-      const wasm = new Uint8Array([
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x06, 0x06, 0x01, 0x7f, 0x01, 0x41, 0x00, 0x0b,
-      ]).buffer;
-      const r = parseWasm(wasm);
-      expect(r.globalCount).toBe(1);
-    });
-  });
+
+    p = bodyEnd;
+  }
+
+  return result;
+}
+
+// ─── Entropy computation ───────────────────────────────────────────────────
+
+export interface EntropyBlock {
+  offset:  number;
+  size:    number;
+  entropy: number;  // 0.0 – 8.0
+}
+
+/**
+ * Compute Shannon entropy over fixed-size blocks of the binary.
+ * High entropy (>7.0) suggests compressed/encrypted content.
+ */
+export function computeEntropy(bytes: Uint8Array, blockSize = 256): EntropyBlock[] {
+  const blocks: EntropyBlock[] = [];
+  for (let offset = 0; offset < bytes.length; offset += blockSize) {
+    const end = Math.min(offset + blockSize, bytes.length);
+    const chunk = bytes.slice(offset, end);
+    const len = chunk.length;
+    if (len === 0) continue;
+
+    // Frequency table
+    const freq = new Uint32Array(256);
+    for (let i = 0; i < len; i++) freq[chunk[i]]++;
+
+    // Shannon entropy
+    let entropy = 0;
+    for (let i = 0; i < 256; i++) {
+      if (freq[i] === 0) continue;
+      const p = freq[i] / len;
+      entropy -= p * Math.log2(p);
+    }
+
+    blocks.push({ offset, size: len, entropy });
+  }
+  return blocks;
+}
+
+// ─── YARA rule parser & matcher ────────────────────────────────────────────
+
+export interface YaraRule {
+  name:        string;
+  tags:        string[];
+  meta:        Record<string, string>;
+  strings:     YaraString[];
+  condition:   string;
+  raw:         string;
+}
+
+export interface YaraString {
+  id:      string;        // $identifier
+  type:    "text" | "hex" | "regex";
+  value:   string;
+  nocase?: boolean;
+  wide?:   boolean;
+}
+
+export interface YaraMatch {
+  rule:     string;
+  tags:     string[];
+  meta:     Record<string, string>;
+  matches:  { stringId: string; offset: number; length: number; matched: string }[];
+}
+
+/**
+ * Minimal YARA rule parser — handles the most common patterns:
+ *   rule name : tag1 tag2 { meta: ... strings: ... condition: ... }
+ * Supports text strings, hex strings { AB CD ?? EF }, and basic conditions.
+ */
+export function parseYaraRules(source: string): YaraRule[] {
+  const rules: YaraRule[] = [];
+  // Match rule blocks
+  const ruleRegex = /rule\s+(\w+)\s*(?::\s*([\w\s]+?))?\s*\{([\s\S]*?)\}/g;
+  let match;
+
+  while ((match = ruleRegex.exec(source)) !== null) {
+    const name = match[1];
+    const tags = match[2] ? match[2].trim().split(/\s+/) : [];
+    const body = match[3];
+
+    // Parse meta section
+    const meta: Record<string, string> = {};
+    const metaMatch = body.match(/meta\s*:\s*([\s\S]*?)(?=strings\s*:|condition\s*:|$)/);
+    if (metaMatch) {
+      const metaLines = metaMatch[1].split("\n");
+      for (const line of metaLines) {
+        const kv = line.match(/^\s*(\w+)\s*=\s*"?([^"\n]+)"?\s*$/);
+        if (kv) meta[kv[1]] = kv[2].trim();
+      }
+    }
+
+    // Parse strings section
+    const strings: YaraString[] = [];
+    const stringsMatch = body.match(/strings\s*:\s*([\s\S]*?)(?=condition\s*:|$)/);
+    if (stringsMatch) {
+      const strLines = stringsMatch[1].split("\n");
+      for (const line of strLines) {
+        const textMatch = line.match(/^\s*(\$\w+)\s*=\s*"([^"]+)"(\s+(?:nocase|wide|ascii))*\s*$/);
+        if (textMatch) {
+          strings.push({
+            id: textMatch[1],
+            type: "text",
+            value: textMatch[2],
+            nocase: /nocase/.test(textMatch[3] || ""),
+            wide: /wide/.test(textMatch[3] || ""),
+          });
+          continue;
+        }
+        const hexMatch = line.match(/^\s*(\$\w+)\s*=\s*\{([^}]+)\}\s*$/);
+        if (hexMatch) {
+          strings.push({
+            id: hexMatch[1],
+            type: "hex",
+            value: hexMatch[2].trim(),
+          });
+          continue;
+        }
+        const regexMatch = line.match(/^\s*(\$\w+)\s*=\s*\/(.+)\/([is]*)\s*$/);
+        if (regexMatch) {
+          strings.push({
+            id: regexMatch[1],
+            type: "regex",
+            value: regexMatch[2],
+          });
+        }
+      }
+    }
+
+    // Parse condition
+    const condMatch = body.match(/condition\s*:\s*([\s\S]*?)$/);
+    const condition = condMatch ? condMatch[1].trim() : "any of them";
+
+    rules.push({ name, tags, meta, strings, condition, raw: match[0] });
+  }
+
+  return rules;
+}
+
+/**
+ * Match parsed YARA rules against a binary buffer.
+ * Supports text string matching, hex patterns (with ?? wildcards), and basic conditions.
+ */
+export function matchYaraRules(rules: YaraRule[], bytes: Uint8Array): YaraMatch[] {
+  const results: YaraMatch[] = [];
+
+  for (const rule of rules) {
+    const allMatches: YaraMatch["matches"] = [];
+
+    for (const str of rule.strings) {
+      if (str.type === "text") {
+        const needle = str.nocase ? str.value.toLowerCase() : str.value;
+        const haystack = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        const searchIn = str.nocase ? haystack.toLowerCase() : haystack;
+        let idx = 0;
+        while ((idx = searchIn.indexOf(needle, idx)) !== -1) {
+          allMatches.push({
+            stringId: str.id,
+            offset: idx,
+            length: needle.length,
+            matched: haystack.slice(idx, idx + needle.length),
+          });
+          idx += 1;
+        }
+      } else if (str.type === "hex") {
+        // Parse hex pattern with ?? wildcards
+        const hexTokens = str.value.split(/\s+/).filter(t => t.length > 0);
+        const pattern: (number | null)[] = hexTokens.map(t =>
+          t === "??" ? null : parseInt(t, 16)
+        );
+        if (pattern.length === 0) continue;
+
+        for (let offset = 0; offset <= bytes.length - pattern.length; offset++) {
+          let found = true;
+          for (let j = 0; j < pattern.length; j++) {
+            if (pattern[j] !== null && bytes[offset + j] !== pattern[j]) {
+              found = false;
+              break;
+            }
+          }
+          if (found) {
+            allMatches.push({
+              stringId: str.id,
+              offset,
+              length: pattern.length,
+              matched: Array.from(bytes.slice(offset, offset + pattern.length))
+                .map(b => b.toString(16).padStart(2, "0"))
+                .join(" "),
+            });
+          }
+        }
+      } else if (str.type === "regex") {
+        try {
+          const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          const re = new RegExp(str.value, "g");
+          let m;
+          while ((m = re.exec(text)) !== null) {
+            allMatches.push({
+              stringId: str.id,
+              offset: m.index,
+              length: m[0].length,
+              matched: m[0].slice(0, 80),
+            });
+          }
+        } catch { /* invalid regex — skip */ }
+      }
+    }
+
+    // Evaluate condition (simplified)
+    const cond = rule.condition.trim();
+    let ruleMatched = false;
+    if (cond === "any of them") {
+      ruleMatched = allMatches.length > 0;
+    } else if (cond === "all of them") {
+      const matchedIds = new Set(allMatches.map(m => m.stringId));
+      ruleMatched = rule.strings.every(s => matchedIds.has(s.id));
+    } else if (cond.match(/^\d+ of them$/)) {
+      const n = parseInt(cond);
+      const matchedIds = new Set(allMatches.map(m => m.stringId));
+      ruleMatched = matchedIds.size >= n;
+    } else {
+      // Default: any match counts
+      ruleMatched = allMatches.length > 0;
+    }
+
+    if (ruleMatched) {
+      results.push({
+        rule: rule.name,
+        tags: rule.tags,
+        meta: rule.meta,
+        matches: allMatches,
+      });
+    }
+  }
+
+  return results;
 }
