@@ -1,1 +1,0 @@
-echo '/// <reference types="vitest/importMeta" />' > src/env.d.ts
