@@ -81,3 +81,18 @@ cobertura.xml
 /*.docx
 /*.xlsx
 /wasmos/web-ui/
+
+# ── Tool configuration ────────────────────────────────────────────────────────
+.claude/
+.gemini/
+.wasmos-pids
+
+# ── Generated scripts and temp files ──────────────────────────────────────────
+generate_docx.mjs
+generate_features_docx.mjs
+install.ps1
+
+# ── Root node_modules (docx generator) ────────────────────────────────────────
+/node_modules/
+/package.json
+/package-lock.json
