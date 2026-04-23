@@ -1,5 +1,6 @@
 use core::panic;
 use super::wasm_module::*;
+use super::syscall_policy::{SyscallPolicy, SyscallViolation, PolicyAction};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
@@ -50,6 +51,12 @@ pub struct Runtime
     pub instruction_count: u64,
     pub syscall_count: u64,
     pub stdout_log: Vec<String>,
+    // ── Syscall filtering ────────────────────────────────────────────────────
+    /// Policy that governs which imports are allowed to execute.
+    #[serde(skip)]
+    pub policy: SyscallPolicy,
+    /// All recorded policy violations for this execution.
+    pub violations: Vec<SyscallViolation>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub enum FlowType
@@ -69,7 +76,9 @@ pub struct FlowCode
 }
 impl Runtime
 {
-    pub fn new(module: Module) -> Self
+    /// Create a new Runtime with an optional syscall policy.
+    /// Pass `None` (or `SyscallPolicy::permissive()`) to preserve the legacy allow-all behaviour.
+    pub fn new_with_policy(module: Module, policy: SyscallPolicy) -> Self
     {   
         //Imports 
         //Will Add Soon
@@ -155,7 +164,20 @@ impl Runtime
                 off +=1;
             }
         }
-        Runtime{paused: false, incount: 0, ended: false, priority: 1, flog: false, clog: false, limflag: false, limit: 0, module, functab, mem: memvec, memmin, memmax, call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(), globs, instruction_count: 0, syscall_count: 0, stdout_log: Vec::new()}
+        Runtime{
+            paused: false, incount: 0, ended: false, priority: 1,
+            flog: false, clog: false, limflag: false, limit: 0,
+            module, functab, mem: memvec, memmin, memmax,
+            call_stack: Vec::new(), value_stack: Vec::new(), flow_stack: Vec::new(),
+            globs,
+            instruction_count: 0, syscall_count: 0, stdout_log: Vec::new(),
+            policy,
+            violations: Vec::new(),
+        }
+    }
+    /// Backward-compatible constructor — defaults to the permissive (allow-all) policy.
+    pub fn new(module: Module) -> Self {
+        Self::new_with_policy(module, SyscallPolicy::permissive())
     } 
     pub fn pop_run(&mut self)
     {
@@ -595,7 +617,37 @@ impl Runtime
                 lstring = format!("{}. Call {}", self.incount, ind);
                 // Check if this is an import call (ABI syscall)
                 if (ind as u32) < self.module.imports {
-                    let imp_name = self.module.imps[ind as usize].impname.clone();
+                    let imp = &self.module.imps[ind as usize];
+                    let imp_name = imp.impname.clone();
+                    let mod_name = imp.modname.clone();
+
+                    // ── Policy enforcement ────────────────────────────────────────────────
+                    if let PolicyAction::Deny = self.policy.check(&imp_name) {
+                        // Record the violation
+                        if self.violations.len() < self.policy.max_violations {
+                            self.violations.push(SyscallViolation::new(
+                                &imp_name,
+                                &mod_name,
+                                self.instruction_count,
+                                format!(
+                                    "Blocked by '{}' policy (default={:?})",
+                                    self.policy.label,
+                                    self.policy.default_action,
+                                ),
+                            ));
+                        }
+                        // Log to stdout so the UI can surface it
+                        let blocked_msg = format!(
+                            "[SYSCALL BLOCKED] '{}::{}' denied by {} policy at instruction {}",
+                            mod_name, imp_name, self.policy.label, self.instruction_count,
+                        );
+                        println!("{}", blocked_msg);
+                        self.stdout_log.push(blocked_msg);
+                        // Halt execution immediately — this is a hard security boundary.
+                        self.ended = true;
+                        return;
+                    }
+                    // ── Dispatch allowed import ───────────────────────────────────────────
                     match imp_name.as_str() {
                         "host_log" => {
                             // ABI: host_log(ptr: i32, len: i32)
@@ -631,9 +683,9 @@ impl Runtime
                             self.syscall_count += 1;
                         }
                         _ => {
-                            // Unknown import — pop args based on type signature, push 0 if
-                            // a return value is expected.  Use the import's type index
-                            // directly (imports sit before module.fnid entries).
+                            // Unknown import that passed the policy check (i.e. policy is
+                            // permissive or it was explicitly allowed).  Stub it out rather
+                            // than panicking — pop args, push 0 if a return is expected.
                             let imp = &self.module.imps[ind as usize];
                             if let Some(type_idx) = imp.index {
                                 if let Some(typ) = self.module.typs.get(type_idx as usize) {
@@ -644,6 +696,10 @@ impl Runtime
                                         self.value_stack.push(StackTypes::I32(0));
                                     }
                                 }
+                            }
+                            // Log allowed-but-unknown calls for observability.
+                            if self.policy.log_allowed {
+                                self.stdout_log.push(format!("[import stub] {}::{}", mod_name, imp_name));
                             }
                             self.syscall_count += 1;
                         }

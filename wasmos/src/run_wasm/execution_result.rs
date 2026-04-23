@@ -1,7 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use crate::run_wasm::syscall_policy::SyscallViolation;
 
 /// Rich execution result returned by the WASM engine after running a module.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionResult {
     /// Whether execution completed successfully
     pub success: bool,
@@ -9,8 +10,12 @@ pub struct ExecutionResult {
     pub error: Option<String>,
     /// Total instructions executed
     pub instructions_executed: u64,
-    /// Total ABI syscalls invoked
+    /// Total ABI syscalls invoked (allowed calls only)
     pub syscalls_executed: u64,
+    /// Number of import calls blocked by the syscall policy
+    pub blocked_syscall_count: u64,
+    /// Detailed violation records — empty when policy is permissive
+    pub syscall_violations: Vec<SyscallViolation>,
     /// Peak memory usage in bytes
     pub memory_used_bytes: u64,
     /// Execution duration in microseconds
@@ -19,26 +24,34 @@ pub struct ExecutionResult {
     pub stdout_log: Vec<String>,
     /// String representation of the return value (if any)
     pub return_value: Option<String>,
+    /// Human-readable label of the policy that was applied
+    pub policy_label: String,
 }
 
 impl ExecutionResult {
     pub fn success(
         instructions: u64,
         syscalls: u64,
+        blocked: u64,
+        violations: Vec<SyscallViolation>,
         memory_bytes: u64,
         duration_us: u64,
         stdout_log: Vec<String>,
         return_value: Option<String>,
+        policy_label: String,
     ) -> Self {
         Self {
             success: true,
             error: None,
             instructions_executed: instructions,
             syscalls_executed: syscalls,
+            blocked_syscall_count: blocked,
+            syscall_violations: violations,
             memory_used_bytes: memory_bytes,
             duration_us,
             stdout_log,
             return_value,
+            policy_label,
         }
     }
 
@@ -46,19 +59,25 @@ impl ExecutionResult {
         error: String,
         instructions: u64,
         syscalls: u64,
+        blocked: u64,
+        violations: Vec<SyscallViolation>,
         memory_bytes: u64,
         duration_us: u64,
         stdout_log: Vec<String>,
+        policy_label: String,
     ) -> Self {
         Self {
             success: false,
             error: Some(error),
             instructions_executed: instructions,
             syscalls_executed: syscalls,
+            blocked_syscall_count: blocked,
+            syscall_violations: violations,
             memory_used_bytes: memory_bytes,
             duration_us,
             stdout_log,
             return_value: None,
+            policy_label,
         }
     }
 }

@@ -120,7 +120,7 @@ impl ExecutionContext {
         }
 
         // Execute the WASM module
-        let execution_result = crate::run_wasm::execute_wasm_file(&self.wasm_path)?;
+        let execution_result = crate::run_wasm::execute_wasm_file(&self.wasm_path, None)?;
 
         // Generate advanced report
         let advanced_report = self.executor.generate_report(

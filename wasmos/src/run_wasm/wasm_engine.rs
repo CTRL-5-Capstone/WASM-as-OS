@@ -994,26 +994,36 @@ impl Curse
 
 pub fn wasm_engine(file_name: String, file_path: &Path) -> Runtime
 {
-    //execute wasm file.
-    let wasm_binary:Vec<u8> = fs::read(file_path).expect("Wasm file could not be read");
+    wasm_engine_with_policy(file_name, file_path, super::syscall_policy::SyscallPolicy::permissive())
+}
+
+/// Execute a WASM file with an explicit syscall policy.
+pub fn wasm_engine_with_policy(
+    file_name: String,
+    file_path: &Path,
+    policy: super::syscall_policy::SyscallPolicy,
+) -> Runtime {
+    let wasm_binary: Vec<u8> = fs::read(file_path).expect("Wasm file could not be read");
     let magic_num: Vec<u8> = vec![0x00, 0x61, 0x73, 0x6D];
     let version: Vec<u8> = vec![0x01, 0x00, 0x00, 0x00];
-    if wasm_binary.len() < 8
-    {
+    if wasm_binary.len() < 8 {
         panic!("Invalid WASM: file is {} bytes (minimum 8 required)", wasm_binary.len());
     }
-    if magic_num != wasm_binary[0..4] || version != wasm_binary[4..8]
-    {
-        panic!("Invalid WASM: bad magic number or version (first 8 bytes: {:02x?})", &wasm_binary[0..8]);
+    if magic_num != wasm_binary[0..4] || version != wasm_binary[4..8] {
+        panic!(
+            "Invalid WASM: bad magic number or version (first 8 bytes: {:02x?})",
+            &wasm_binary[0..8]
+        );
     }
     let leng = wasm_binary.len();
     let mut cursor = Curse::new(wasm_binary, leng);
     let mut module = cursor.parse_wasm();
     module.name = file_name;
-    let mut wasm_runner = Runtime::new(module);
+    let mut wasm_runner = Runtime::new_with_policy(module, policy);
     wasm_runner.pop_run();
     wasm_runner
 }
+
 
 
 

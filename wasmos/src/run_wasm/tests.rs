@@ -30,7 +30,7 @@ mod snake_wasm_tests {
             .find(|p| Path::new(p).exists())
             .expect("snake.wasm not found — run tests from the wasmos/ or project root directory");
 
-        let result = execute_wasm_file(path);
+        let result = execute_wasm_file(path, None);
         assert!(result.is_ok(), "execute_wasm_file returned Err: {:?}", result.err());
 
         let exec = result.unwrap();
@@ -53,7 +53,7 @@ mod snake_wasm_tests {
             .find(|p| Path::new(p).exists())
             .expect("snake.wasm not found");
 
-        if let Ok(exec) = execute_wasm_file(path) {
+        if let Ok(exec) = execute_wasm_file(path, None) {
             if exec.success {
                 assert!(
                     exec.instructions_executed > 0,

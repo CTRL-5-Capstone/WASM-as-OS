@@ -9,6 +9,7 @@ pub mod import_call_manager;
 pub mod execution_framework;
 pub mod wasm_imports;
 pub mod interpreter;
+pub mod syscall_policy;
 
 #[cfg(test)]
 mod tests;
@@ -16,5 +17,7 @@ mod tests;
 pub use execution_result::ExecutionResult;
 pub use wasm_control::execute_wasm_file;
 pub use execution_framework::{ExecutionDispatcher, ExecutionConfig};
+pub use syscall_policy::{SyscallPolicy, SyscallViolation, PolicyAction, PolicyPreset, PolicyRequest};
 #[allow(unused_imports)]
 pub use trap::WasmTrap;
+
