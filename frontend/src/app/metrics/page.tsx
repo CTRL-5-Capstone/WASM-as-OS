@@ -119,13 +119,13 @@ export default function MetricsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold gradient-text flex items-center gap-2">
-            <BarChart3 size={26} /> Metrics
+          <h1 className="text-2xl font-bold gradient-text flex items-center gap-2">
+            <BarChart3 size={20} /> Metrics
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Live Prometheus metrics + WASM import analysis
             {lastUpdated && (
-              <span className="ml-2 text-slate-400">
+              <span className="ml-2 text-muted-foreground/70">
                 · updated {lastUpdated.toLocaleTimeString()}
               </span>
             )}
@@ -179,22 +179,22 @@ export default function MetricsPage() {
       {importStats && importStats.modules.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-700 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
               <Activity size={14} className="text-indigo-500" /> Import Namespace Usage
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead className="border-b border-slate-100">
-                  <tr className="text-left text-[10px] uppercase text-slate-500">
+                <thead className="border-b border-border">
+                  <tr className="text-left text-[10px] uppercase text-muted-foreground">
                     <th className="px-4 py-2">Namespace</th>
                     <th className="px-4 py-2">Tasks Using</th>
                     <th className="px-4 py-2">Enabled</th>
                     <th className="px-4 py-2">Share</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y divide-border">
                   {[...importStats.modules]
                     .sort((a, b) => b.task_count - a.task_count)
                     .slice(0, 15)
@@ -202,17 +202,17 @@ export default function MetricsPage() {
                       const max = importStats.modules[0]?.task_count ?? 1;
                       const pct = Math.round((mod.task_count / max) * 100);
                       return (
-                        <tr key={i} className="hover:bg-slate-50">
-                          <td className="px-4 py-2 font-mono text-indigo-600">{mod.name}</td>
-                          <td className="px-4 py-2 font-semibold text-slate-700">
+                        <tr key={i} className="hover:bg-muted/30">
+                          <td className="px-4 py-2 font-mono text-primary">{mod.name}</td>
+                          <td className="px-4 py-2 font-semibold text-foreground">
                             {formatNumber(mod.task_count)}
                           </td>
                           <td className="px-4 py-2">
                             <span
                               className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
                                 mod.enabled
-                                  ? "bg-emerald-50 text-emerald-700"
-                                  : "bg-red-50 text-red-600"
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : "bg-red-500/10 text-red-400"
                               }`}
                             >
                               {mod.enabled ? "allowed" : "blocked"}
@@ -220,13 +220,13 @@ export default function MetricsPage() {
                           </td>
                           <td className="px-4 py-2 w-32">
                             <div className="flex items-center gap-2">
-                              <div className="flex-1 h-1.5 rounded-full bg-slate-100">
+                              <div className="flex-1 h-1.5 rounded-full bg-muted/40">
                                 <div
-                                  className="h-1.5 rounded-full bg-indigo-400 transition-all"
+                                  className="h-1.5 rounded-full bg-primary transition-all"
                                   style={{ width: `${pct}%` }}
                                 />
                               </div>
-                              <span className="text-slate-400 w-8 text-right">{pct}%</span>
+                              <span className="text-muted-foreground w-8 text-right">{pct}%</span>
                             </div>
                           </td>
                         </tr>
@@ -242,10 +242,10 @@ export default function MetricsPage() {
       {/* Prometheus metrics */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-            <Info size={13} className="text-indigo-500" /> Prometheus Metrics
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+            <Info size={13} className="text-primary" /> Prometheus Metrics
             {metrics.length > 0 && (
-              <span className="ml-1 text-[10px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">
+              <span className="ml-1 text-[10px] rounded-full bg-muted text-muted-foreground px-2 py-0.5">
                 {metrics.length} series
               </span>
             )}
@@ -261,15 +261,15 @@ export default function MetricsPage() {
         {loading && metrics.length === 0 ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-20 animate-pulse rounded-xl bg-slate-100" />
+              <div key={i} className="h-20 animate-pulse rounded-lg bg-muted" />
             ))}
           </div>
         ) : metrics.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
-              <BarChart3 size={32} className="mx-auto text-slate-200 mb-3" />
-              <p className="text-sm text-slate-400">No Prometheus metrics available</p>
-              <p className="text-xs text-slate-300 mt-1">
+              <BarChart3 size={32} className="mx-auto text-muted-foreground/20 mb-3" />
+              <p className="text-sm text-muted-foreground">No Prometheus metrics available</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
                 Make sure the backend is running with metrics enabled
               </p>
             </CardContent>
@@ -279,21 +279,21 @@ export default function MetricsPage() {
             {Object.entries(groups).map(([prefix, lines]) => (
               <Card key={prefix}>
                 <CardHeader className="pb-1">
-                  <CardTitle className="text-xs font-mono text-slate-600">{prefix}_*</CardTitle>
+                  <CardTitle className="text-xs font-mono text-muted-foreground">{prefix}_*</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <tbody className="divide-y divide-slate-50">
+                      <tbody className="divide-y divide-border">
                         {lines.map((m, i) => (
-                          <tr key={i} className="hover:bg-slate-50">
-                            <td className="px-4 py-1.5 font-mono text-slate-700 whitespace-nowrap">
+                          <tr key={i} className="hover:bg-muted/30">
+                            <td className="px-4 py-1.5 font-mono text-foreground whitespace-nowrap">
                               {m.name}
                             </td>
-                            <td className="px-4 py-1.5 font-mono text-slate-500 text-[10px] max-w-xs truncate">
+                            <td className="px-4 py-1.5 font-mono text-muted-foreground text-[10px] max-w-xs truncate">
                               {m.labels}
                             </td>
-                            <td className="px-4 py-1.5 font-semibold text-indigo-700 text-right whitespace-nowrap">
+                            <td className="px-4 py-1.5 font-semibold text-primary text-right whitespace-nowrap">
                               {m.value}
                             </td>
                           </tr>
@@ -311,10 +311,10 @@ export default function MetricsPage() {
       {/* Raw text toggle */}
       {raw && (
         <details className="group">
-          <summary className="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-700 select-none">
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground select-none">
             Raw Prometheus text
           </summary>
-          <pre className="mt-2 max-h-64 overflow-auto rounded-xl bg-slate-950 px-4 py-3 text-[10px] text-emerald-400 font-mono leading-relaxed">
+          <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-black/40 border border-border px-4 py-3 text-[10px] text-emerald-400 font-mono leading-relaxed">
             {raw}
           </pre>
         </details>
@@ -332,17 +332,17 @@ function StatCard({
   color: "indigo" | "sky" | "violet" | "emerald";
 }) {
   const colors = {
-    indigo: "bg-indigo-50 border-indigo-100 text-indigo-600",
-    sky:    "bg-sky-50 border-sky-100 text-sky-600",
-    violet: "bg-violet-50 border-violet-100 text-violet-600",
-    emerald:"bg-emerald-50 border-emerald-100 text-emerald-600",
+    indigo: "bg-primary/10 border-primary/20 text-primary",
+    sky:    "bg-sky-500/10 border-sky-500/20 text-sky-400",
+    violet: "bg-violet-500/10 border-violet-500/20 text-violet-400",
+    emerald:"bg-emerald-500/10 border-emerald-500/20 text-emerald-400",
   };
   return (
-    <div className={cn("rounded-xl border p-4", colors[color])}>
+    <div className={cn("rounded-lg border p-4", colors[color])}>
       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider mb-1.5">
         {icon} {label}
       </div>
-      <p className="text-2xl font-bold text-slate-900">{value}</p>
+      <p className="text-2xl font-bold text-foreground">{value}</p>
     </div>
   );
 }

@@ -18,13 +18,13 @@ import { Button } from "@/components/ui/button";
 // ─── Category colors ────────────────────────────────────────────────
 
 const CAT_COLORS: Record<string, string> = {
-  arithmetic:    "bg-blue-50 text-blue-700 border-blue-200",
-  integration:   "bg-purple-50 text-purple-700 border-purple-200",
-  "control-flow":"bg-amber-50 text-amber-800 border-amber-200",
-  application:   "bg-emerald-50 text-emerald-700 border-emerald-200",
-  complex:       "bg-red-50 text-red-700 border-red-200",
-  large:         "bg-orange-50 text-orange-700 border-orange-200",
-  general:       "bg-slate-50 text-slate-700 border-slate-200",
+  arithmetic:    "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  integration:   "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  "control-flow":"bg-amber-500/10 text-amber-400 border-amber-500/20",
+  application:   "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  complex:       "bg-red-500/10 text-red-400 border-red-500/20",
+  large:         "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  general:       "bg-muted text-muted-foreground border-border",
 };
 
 const catColor = (cat: string) => CAT_COLORS[cat] || CAT_COLORS.general;
@@ -221,13 +221,13 @@ export default function TestsPage() {
   const statusIcon = (s: RunStatus) => {
     switch (s) {
       case "running":
-        return <RefreshCw size={14} className="text-indigo-600 animate-spin" />;
+        return <RefreshCw size={14} className="text-indigo-400 animate-spin" />;
       case "pass":
         return <CheckCircle size={14} className="text-green-400" />;
       case "fail":
         return <XCircle size={14} className="text-red-400" />;
       default:
-        return <div className="w-3.5 h-3.5 rounded-full border border-slate-600" />;
+        return <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground" />;
     }
   };
 
@@ -236,14 +236,14 @@ export default function TestsPage() {
   // ═════════════════════════════════════════════════════════════════
 
   return (
-    <div className="animate-fade-in space-y-5">
+    <div className="animate-fade-in space-y-6">
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold gradient-text flex items-center gap-3">
-            <FlaskConical size={28} /> Test Suite
+          <h1 className="text-2xl font-bold gradient-text flex items-center gap-2">
+            <FlaskConical size={20} /> Test Suite
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Run all WasmOS test files from the engine&apos;s test directories
           </p>
         </div>
@@ -260,16 +260,16 @@ export default function TestsPage() {
       {/* ── Summary ribbon ── */}
       <div className="grid grid-cols-5 gap-3">
         {[
-          { label: "Total Files", count: files.length, cls: "text-slate-900", icon: FileCode, iconCls: "text-indigo-600" },
+          { label: "Total Files", count: files.length, cls: "text-foreground", icon: FileCode, iconCls: "text-indigo-400" },
           { label: "Passed", count: passed, cls: "text-green-400", icon: CheckCircle, iconCls: "text-green-400" },
           { label: "Failed", count: failed, cls: "text-red-400", icon: XCircle, iconCls: "text-red-400" },
-          { label: "Running", count: running, cls: "text-indigo-700", icon: RefreshCw, iconCls: "text-indigo-600" },
-          { label: "Pending", count: idle, cls: "text-slate-400", icon: Clock, iconCls: "text-slate-500" },
+          { label: "Running", count: running, cls: "text-indigo-400", icon: RefreshCw, iconCls: "text-indigo-400" },
+          { label: "Pending", count: idle, cls: "text-muted-foreground", icon: Clock, iconCls: "text-muted-foreground" },
         ].map(({ label, count, cls, icon: Icon, iconCls }) => (
           <Card key={label} className="p-4 text-center">
             <Icon size={18} className={cn("mx-auto mb-1", iconCls)} />
             <p className={cn("text-2xl font-bold", cls)}>{count}</p>
-            <p className="text-[11px] text-slate-500">{label}</p>
+            <p className="text-[11px] text-muted-foreground">{label}</p>
           </Card>
         ))}
       </div>
@@ -297,18 +297,18 @@ export default function TestsPage() {
                 ? "All Tests Passed!"
                 : `${batchResult.failed} of ${batchResult.total} Tests Failed`}
             </p>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               {batchResult.passed}/{batchResult.total} passed · Total time: {formatDuration(batchResult.total_duration_us)}
             </p>
           </div>
           <div className="flex gap-4 text-center">
             <div>
               <p className="text-lg font-bold text-green-400">{batchResult.passed}</p>
-              <p className="text-[10px] text-slate-500">Pass</p>
+              <p className="text-[10px] text-muted-foreground">Pass</p>
             </div>
             <div>
               <p className="text-lg font-bold text-red-400">{batchResult.failed}</p>
-              <p className="text-[10px] text-slate-500">Fail</p>
+              <p className="text-[10px] text-muted-foreground">Fail</p>
             </div>
           </div>
         </Card>
@@ -324,7 +324,7 @@ export default function TestsPage() {
 
         {/* Category filter */}
         <div className="flex items-center gap-1.5">
-          <Filter size={13} className="text-slate-500" />
+          <Filter size={13} className="text-muted-foreground" />
           {categories.map((cat) => (
             <button
               key={cat}
@@ -332,9 +332,9 @@ export default function TestsPage() {
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-medium border transition-all",
                 categoryFilter === cat
-                  ? "ring-1 ring-indigo-500/40 bg-indigo-500/10 text-indigo-700 border-indigo-500/30"
+                  ? "ring-1 ring-indigo-500/40 bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
                   : cat === "all"
-                  ? "text-slate-700 bg-slate-50 border-slate-200 hover:border-slate-300"
+                  ? "text-muted-foreground bg-muted border-border hover:border-border"
                   : catColor(cat)
               )}
             >
@@ -344,7 +344,7 @@ export default function TestsPage() {
         </div>
 
         {/* Stats summary */}
-        <div className="ml-auto text-xs text-slate-500">
+        <div className="ml-auto text-xs text-muted-foreground">
           {filtered.length} file{filtered.length !== 1 && "s"} shown
         </div>
       </div>
@@ -354,15 +354,15 @@ export default function TestsPage() {
         <Card>
           <CardContent className="p-10 text-center">
           <RefreshCw size={28} className="mx-auto text-sky-400 animate-spin mb-3" />
-          <p className="text-sm text-slate-400">Discovering test files…</p>
+          <p className="text-sm text-muted-foreground">Discovering test files…</p>
           </CardContent>
         </Card>
       ) : filtered.length === 0 ? (
         <Card>
-          <CardContent className="p-10 text-center text-slate-500">
-          <FlaskConical size={36} className="mx-auto mb-3 text-slate-600" />
-          <p className="text-sm">No test files found in WasmOSTest or wasm_files directories</p>
-          <p className="text-xs mt-1 text-slate-600">Make sure the backend server is running and the test directories exist</p>
+          <CardContent className="p-10 text-center text-muted-foreground">
+          <FlaskConical size={36} className="mx-auto mb-3 text-muted-foreground" />
+          <p className="text-sm">No test files found in WasmOS test or wasm_files directories</p>
+          <p className="text-xs mt-1 text-muted-foreground">Make sure the backend server is running and the test directories exist</p>
           </CardContent>
         </Card>
       ) : (
@@ -371,8 +371,8 @@ export default function TestsPage() {
             <Card key={file.name + file.source} className="overflow-hidden transition-all">
               {/* ── Row ── */}
               <div
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors",
+                  className={cn(
+                  "flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors",
                   status === "pass" && "border-l-2 border-green-500",
                   status === "fail" && "border-l-2 border-red-500"
                 )}
@@ -380,9 +380,9 @@ export default function TestsPage() {
               >
                 {/* Expand arrow */}
                 {expanded ? (
-                  <ChevronDown size={14} className="text-slate-500 shrink-0" />
+                  <ChevronDown size={14} className="text-muted-foreground shrink-0" />
                 ) : (
-                  <ChevronRight size={14} className="text-slate-500 shrink-0" />
+                  <ChevronRight size={14} className="text-muted-foreground shrink-0" />
                 )}
 
                 {/* Status */}
@@ -391,13 +391,13 @@ export default function TestsPage() {
                 {/* File info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-900 truncate">{file.name}</span>
+                    <span className="text-sm font-medium text-foreground truncate">{file.name}</span>
                     <span className={cn("text-[10px] rounded-full border px-2 py-0.5", catColor(file.category))}>
                       {file.category}
                     </span>
-                    <span className="text-[10px] text-slate-600">{file.source}</span>
+                    <span className="text-[10px] text-muted-foreground">{file.source}</span>
                   </div>
-                  <div className="flex gap-3 mt-0.5 text-[11px] text-slate-500">
+                  <div className="flex gap-3 mt-0.5 text-[11px] text-muted-foreground">
                     <span>{formatBytes(file.size_bytes)}</span>
                     {result && (
                       <>
@@ -430,7 +430,7 @@ export default function TestsPage() {
 
               {/* ── Expanded detail ── */}
               {expanded && result && (
-                <div className="border-t border-slate-200 px-5 py-4 space-y-3 bg-slate-50">
+                <div className="border-t border-border px-5 py-4 space-y-3 bg-muted/20">
                   {/* Result banner */}
                   <div
                     className={cn(
@@ -459,10 +459,10 @@ export default function TestsPage() {
                       { label: "Syscalls", value: formatNumber(result.syscalls_executed), icon: Zap, color: "text-amber-400" },
                       { label: "Memory", value: formatBytes(result.memory_used_bytes), icon: HardDrive, color: "text-emerald-400" },
                     ].map(({ label, value, icon: Icon, color }) => (
-                      <div key={label} className="rounded-lg bg-white border border-slate-200 p-2.5 text-center">
+                      <div key={label} className="rounded-lg bg-card border border-border p-2.5 text-center">
                         <Icon size={13} className={cn("mx-auto mb-1", color)} />
-                        <p className="text-xs font-bold text-slate-900">{value}</p>
-                        <p className="text-[10px] text-slate-500">{label}</p>
+                        <p className="text-xs font-bold text-foreground">{value}</p>
+                        <p className="text-[10px] text-muted-foreground">{label}</p>
                       </div>
                     ))}
                   </div>
@@ -470,7 +470,7 @@ export default function TestsPage() {
                   {/* Stdout */}
                   {result.stdout_log.length > 0 && (
                     <div>
-                      <h4 className="text-[11px] font-medium text-slate-500 uppercase mb-1">stdout</h4>
+                      <h4 className="text-[11px] font-medium text-muted-foreground uppercase mb-1">stdout</h4>
                       <pre className="rounded-lg bg-black/50 p-2.5 text-xs text-green-400 max-h-32 overflow-auto font-mono leading-relaxed">
                         {result.stdout_log.join("\n")}
                       </pre>
@@ -480,8 +480,8 @@ export default function TestsPage() {
                   {/* Return value */}
                   {result.return_value != null && (
                     <div className="flex items-center gap-2 text-xs">
-                      <span className="text-slate-500">Return:</span>
-                      <code className="text-indigo-700 font-mono bg-indigo-500/10 rounded px-2 py-0.5">
+                      <span className="text-muted-foreground">Return:</span>
+                      <code className="text-indigo-400 font-mono bg-indigo-500/10 rounded px-2 py-0.5">
                         {String(result.return_value)}
                       </code>
                     </div>
@@ -491,16 +491,16 @@ export default function TestsPage() {
 
               {/* Expanded but no result */}
               {expanded && !result && status !== "running" && (
-                <div className="border-t border-slate-200 px-5 py-4 text-center">
-                  <p className="text-xs text-slate-500">Click Run to execute this test</p>
+                <div className="border-t border-border px-5 py-4 text-center">
+                  <p className="text-xs text-muted-foreground">Click Run to execute this test</p>
                 </div>
               )}
 
               {/* Running spinner */}
               {expanded && status === "running" && (
-                <div className="border-t border-slate-200 px-5 py-6 text-center">
-                  <RefreshCw size={20} className="mx-auto text-indigo-600 animate-spin mb-2" />
-                  <p className="text-xs text-slate-400">Executing…</p>
+                <div className="border-t border-border px-5 py-6 text-center">
+                  <RefreshCw size={20} className="mx-auto text-indigo-400 animate-spin mb-2" />
+                  <p className="text-xs text-muted-foreground">Executing…</p>
                 </div>
               )}
             </Card>
@@ -512,10 +512,10 @@ export default function TestsPage() {
       {(passed > 0 || failed > 0) && (
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-2">
-            <BarChart3 size={14} className="text-slate-500" />
-            <span className="text-xs text-slate-500 uppercase font-medium">Results Distribution</span>
+            <BarChart3 size={14} className="text-muted-foreground" />
+            <span className="text-xs text-muted-foreground uppercase font-medium">Results Distribution</span>
           </div>
-          <div className="flex rounded-full overflow-hidden h-3 bg-slate-100">
+          <div className="flex rounded-full overflow-hidden h-3 bg-muted">
             {passed > 0 && (
               <div
                 className="bg-green-500 transition-all duration-500"
@@ -529,7 +529,7 @@ export default function TestsPage() {
               />
             )}
           </div>
-          <div className="flex justify-between mt-1.5 text-[11px] text-slate-500">
+          <div className="flex justify-between mt-1.5 text-[11px] text-muted-foreground">
             <span>
               <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />
               {passed} Passed ({files.length > 0 ? Math.round((passed / files.length) * 100) : 0}%)
