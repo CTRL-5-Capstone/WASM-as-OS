@@ -1,69 +1,74 @@
-# Security policy
+# Security
 
 ## Supported versions
+
+We only actively maintain the `main` branch. If you're running an older checkout or tagged release, please pull the latest before reporting issues — there's a decent chance it's already been fixed.
 
 | Version | Supported |
 |---|---|
 | `main` | Yes |
-| Older branches/tags | No (please upgrade) |
+| Anything else | Not actively — please upgrade |
 
 ## Reporting a vulnerability
 
-Please do not open a public GitHub issue for security vulnerabilities.
+**Don't open a public GitHub issue for security bugs.** We'd rather fix it before it's out in the open.
 
-Preferred: use GitHub private vulnerability reporting.
+The best way to report is through [GitHub's private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability). That lets us triage it privately and coordinate a fix without broadcasting the details.
 
-- https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability
+When you report something, it helps if you can include:
 
-If you operate a private security inbox for this project, you can also accept reports by email (document the address here).
+- A clear description of the problem and why it matters
+- Steps to reproduce — even a rough outline is better than nothing
+- What part of the system is affected (backend, frontend, deployment config, Kubernetes, etc.)
+- If you've thought about a fix or mitigation, we'd love to hear it
 
-Include:
+## How quickly we aim to respond
 
-- What the issue is and why it matters
-- Steps to reproduce (commands or a minimal PoC)
-- What area is affected (backend, frontend, deployment config, k8s, etc.)
-- Any suggested fix or mitigation (if you have one)
+These are targets, not promises. We're a small team and sometimes things take a bit longer.
 
-## Response targets
+| Severity | First response | Fix target |
+|---|---|---|
+| Critical (RCE, auth bypass, data leak) | 24 hours | 72 hours |
+| High (privilege escalation, significant data exposure) | 48 hours | 7 days |
+| Medium (information disclosure, CSRF, etc.) | 5 business days | 30 days |
+| Low (minor hardening, defense-in-depth) | 14 days | Next planned release |
 
-These targets are goals, not guarantees.
+## How the security model works
 
-| Severity | Initial response | Target patch |
-|---|---:|---:|
-| Critical | 24 hours | 72 hours |
-| High | 48 hours | 7 days |
-| Medium | 5 days | 30 days |
-| Low | 14 days | Next release |
+Here's a quick summary of the layers we've put in place. None of these are silver bullets on their own, but together they cover a reasonable amount of ground.
 
-## Security architecture (high level)
+### Authentication and authorization
 
-### Authentication
+When `WASMOS__SECURITY__AUTH_ENABLED=true` (which you should always set in production), all `/v1/*` routes require a valid JWT in the `Authorization` header. Tokens are issued via `POST /v1/auth/token` using an admin key that you configure through `WASMOS__SECURITY__ADMIN_KEY`.
 
-- When `WASMOS__SECURITY__AUTH_ENABLED=true`, auth is applied to `/v1/*`.
-- Tokens are minted via `POST /v1/auth/token` (requires `WASMOS__SECURITY__ADMIN_KEY`).
+On top of JWTs, there's a **capability token** system for more granular access control. You can issue tokens with specific permissions like `task_read`, `task_execute`, `snapshot_write`, etc., and optionally scope them to a specific tenant. Tokens can have expiry times and can be revoked individually.
+
+### WASM sandboxing
+
+All WebAssembly modules run through our custom interpreter (under `wasmos/src/run_wasm/`). There's no `wasmtime` or `wasmer` in the dependency tree — we wrote the execution engine from scratch, partly as a learning exercise and partly so we'd have full control over what host functions are exposed.
+
+Static security analysis is available at `GET /v1/tasks/{id}/security`, which parses the binary's import/export sections and flags anything that looks suspicious (file I/O, network access, process spawning, etc.). The frontend's Security page takes this further with control-flow graph visualization, entropy analysis, and pattern matching.
+
+### Path traversal protection
+
+Task file paths stored in the database are validated against the `wasm_files/` directory before any `fs::read` or execution happens. Even if someone manages to inject a `../../etc/passwd` path into the database, the backend canonicalizes it and checks that it's inside the sandbox before touching the filesystem.
 
 ### Supply chain
 
-- `cargo deny` is used in CI (see `wasmos/deny.toml`).
-- The Rust toolchain is pinned (see `wasmos/rust-toolchain.toml`).
+We use `cargo deny` in CI to check for known vulnerabilities, license violations, and duplicate crates. The Rust toolchain version is pinned in `wasmos/rust-toolchain.toml` so builds are reproducible.
 
-### Secrets
+### Rate limiting and network policy
 
-- Do not commit secrets. Use environment variables or your platform secrets manager.
-- `.env`-style files are gitignored.
-- `k8s/secrets.yaml` contains placeholders.
+The backend has a per-IP rate limiter controlled by `WASMOS__SECURITY__RATE_LIMIT_PER_MINUTE`. For Kubernetes deployments, a NetworkPolicy is provided at `k8s/network-policy.yaml` to restrict pod-to-pod traffic.
 
-### Network and abuse controls
+### Secrets management
 
-- A Kubernetes NetworkPolicy is provided at `k8s/network-policy.yaml`.
-- The backend includes a per-IP rate limiter controlled by `WASMOS__SECURITY__RATE_LIMIT_PER_MINUTE`.
+We don't commit secrets. Environment variables are the expected mechanism, and `.env` files are gitignored. The `k8s/secrets.yaml` in the repo contains placeholder values that you're meant to replace.
 
-### WASM sandbox
+If you start the server with weak defaults for `admin_key` or `jwt_secret`, it prints a warning at startup. Don't ignore that warning in production.
 
-- WASM modules are executed by the custom interpreter under `wasmos/src/run_wasm/`.
-- Static checks are available at `GET /v1/tasks/{id}/security`.
+## Known limitations
 
-## Notes and limitations
-
-- `WASMOS__SECURITY__AUTH_ENABLED=false` is intended for local development; enable auth in production.
-- If you run with a weak `admin_key`/JWT secret, the server will warn at startup.
+- With `AUTH_ENABLED=false` (the default for local dev), there's no authentication at all. This is intentional for development convenience but obviously shouldn't be deployed that way.
+- The audit log records API actions but doesn't currently capture WebSocket events.
+- The WASM interpreter is a learning project — it hasn't been through a formal security audit. Don't run untrusted WASM in production without understanding the risks.
