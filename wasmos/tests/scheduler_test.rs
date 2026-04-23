@@ -1,7 +1,7 @@
 #[test]
 fn test_basic_task_queueing() {
     // Pretend we have 3 tasks in the queue
-    let mut queue: Vec<u32> = vec![1, 2, 3];
+    let queue: Vec<u32> = vec![1, 2, 3];
 
     assert_eq!(queue.len(), 3, "Queue should contain 3 tasks");
     assert_eq!(queue[0], 1, "First task ID should be 1");
@@ -30,7 +30,7 @@ fn test_round_robin_single_task() {
 
 #[test]
 fn test_round_robin_empty_queue() {
-    let mut queue: Vec<u32> = Vec::new();
+    let queue: Vec<u32> = Vec::new();
 
     // Nothing to rotate, just make sure it stays empty
     assert!(queue.is_empty());
