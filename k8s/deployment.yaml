@@ -20,18 +20,52 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      # Spread replicas across nodes so a single node failure doesn't take all pods down.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: wasmos
+              topologyKey: kubernetes.io/hostname
+      # Pod-level security: run as a non-root user, enforce fsGroup for volume access
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: wasmos
+        # Always pull in production so rolling updates pick up the latest image.
+        # IfNotPresent is only safe when image tags are immutable (e.g. SHA digests).
         image: wasmos:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
+        # Container-level security: drop all Linux capabilities, no privilege escalation
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
         ports:
         - name: http
           containerPort: 8080
           protocol: TCP
+        # /metrics is served on the same port as HTTP (actix-web unified listener).
+        # The "metrics" named port is an alias so the Prometheus annotation
+        # prometheus.io/port: "8080" resolves via port name in ServiceMonitors.
         - name: metrics
           containerPort: 8080
           protocol: TCP
+          # Note: both names map to 8080. Metrics are co-hosted on the HTTP port.
         env:
+        # Enable strict secret validation at startup
+        - name: WASMOS_ENV
+          value: "production"
         - name: WASMOS__SERVER__HOST
           value: "0.0.0.0"
         - name: WASMOS__SERVER__PORT
@@ -46,6 +80,14 @@ spec:
             secretKeyRef:
               name: wasmos-secrets
               key: jwt-secret
+        - name: WASMOS__SECURITY__ADMIN_KEY
+          valueFrom:
+            secretKeyRef:
+              name: wasmos-secrets
+              key: admin-key
+        # Enable JWT authentication in production
+        - name: WASMOS__SECURITY__AUTH_ENABLED
+          value: "true"
         - name: WASMOS__LOGGING__LEVEL
           valueFrom:
             configMapKeyRef:
@@ -53,6 +95,15 @@ spec:
               key: log-level
         - name: WASMOS__LOGGING__FORMAT
           value: "json"
+        # Redis L2 cache — optional. Remove this env var if Redis is not deployed.
+        # When unset, the app uses moka-only (L1 in-process cache per pod).
+        # - name: REDIS_URL
+        #   value: "redis://redis:6379"
+        # Tell Rust where WASM files are stored (matches volumeMount below).
+        # Without this, wasm_files_dir() falls back to CARGO_MANIFEST_DIR which
+        # does not exist inside the container image.
+        - name: WASM_FILES_DIR
+          value: "/app/wasm_files"
         resources:
           requests:
             memory: "256Mi"
@@ -79,10 +130,15 @@ spec:
         volumeMounts:
         - name: wasm-storage
           mountPath: /app/wasm_files
+        # readOnlyRootFilesystem=true requires writable tmpfs for temp files
+        - name: tmp
+          mountPath: /tmp
       volumes:
       - name: wasm-storage
         persistentVolumeClaim:
           claimName: wasmos-pvc
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -109,8 +165,13 @@ kind: PersistentVolumeClaim
 metadata:
   name: wasmos-pvc
 spec:
+  # ReadWriteMany is required when replicas > 1 so all pods can mount the same volume.
+  # This requires a compatible StorageClass (e.g. AWS EFS, Azure Files, NFS, Rook-CephFS).
+  # On clusters that only support ReadWriteOnce (e.g. local-path, gp2), set replicas: 1
+  # in the Deployment and remove the minReplicas override in the HPA, then let the HPA
+  # scale reads via separate read-only pods backed by object storage (S3/GCS).
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: 10Gi
@@ -124,15 +185,11 @@ data:
   max-wasm-size-mb: "50"
   execution-timeout-secs: "30"
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: wasmos-secrets
-type: Opaque
-stringData:
-  # !! Replace with real values via CI/CD — see k8s/secrets.yaml for instructions !!
-  database-url: "postgresql://wasmos:CHANGE_ME@postgres-service:5432/wasmos"
-  jwt-secret:   "CHANGE_ME_TO_AT_LEAST_32_RANDOM_CHARS"
+# Secrets are managed separately — do NOT commit real values here.
+# Apply k8s/secrets.yaml (after filling in real values) before applying this file:
+#   kubectl apply -f k8s/namespace.yaml
+#   kubectl apply -f k8s/secrets.yaml   # populate from CI/CD or External Secrets Operator
+#   kubectl apply -f k8s/deployment.yaml
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
