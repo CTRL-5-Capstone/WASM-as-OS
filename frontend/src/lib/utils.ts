@@ -49,9 +49,9 @@ export function statusColor(status: string): string {
     completed: 'text-blue-400',
     failed:    'text-red-400',
     stopped:   'text-yellow-400',
-    pending:   'text-slate-400',
+    pending:   'text-muted-foreground',
   };
-  return map[status?.toLowerCase()] || 'text-slate-400';
+  return map[status?.toLowerCase()] || 'text-muted-foreground';
 }
 
 export function statusBg(status: string): string {
@@ -60,7 +60,7 @@ export function statusBg(status: string): string {
     completed: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
     failed:    'bg-red-500/20 text-red-400 border-red-500/30',
     stopped:   'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    pending:   'bg-slate-500/20 text-slate-400 border-slate-500/30',
+    pending:   'bg-muted/40 text-muted-foreground border-border',
   };
-  return map[status?.toLowerCase()] || 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+  return map[status?.toLowerCase()] || 'bg-muted/40 text-muted-foreground border-border';
 }

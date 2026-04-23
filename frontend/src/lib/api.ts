@@ -5,6 +5,7 @@
  * JWT token is injected via Authorization: Bearer header when present.
  */
 import { getToken, clearToken } from "./auth";
+import { withSWR, invalidate, clearAll as clearCacheAll } from "./client-cache";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -62,6 +63,8 @@ export interface ExecutionResult {
   duration_us: number;
   stdout_log: string[];
   return_value?: number | string | null;
+  /** Present when backend includes the execution record id */
+  execution_id?: string;
 }
 
 export interface SystemStats {
@@ -150,9 +153,43 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return _fetchOnce<T>(path, init);
 }
 
+/** Retryable status codes: network failures and server overload. */
+const RETRYABLE_STATUSES = new Set([408, 429, 502, 503, 504]);
+
+/**
+ * Fetch with exponential backoff retry (GET-only).
+ * Retries up to 3 times on network failures or retryable HTTP status codes.
+ * Write methods (POST/PUT/DELETE) are NOT retried — they are not idempotent.
+ */
 async function _fetchOnce<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const isWrite = method === "POST" || method === "PUT" || method === "DELETE";
+  const maxAttempts = isWrite ? 1 : 3;
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await _fetchRaw<T>(path, init);
+      return result;
+    } catch (err) {
+      lastErr = err;
+      // Don't retry auth errors, client errors, or on last attempt
+      if (err instanceof ApiError && !RETRYABLE_STATUSES.has(err.status)) throw err;
+      if (attempt === maxAttempts) break;
+      // Exponential backoff: 300 ms, 900 ms
+      await new Promise((r) => setTimeout(r, 300 * Math.pow(3, attempt - 1)));
+    }
+  }
+  throw lastErr;
+}
+
+async function _fetchRaw<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  // Use longer timeouts for batch / upload operations, shorter for reads
+  const method = (init?.method ?? "GET").toUpperCase();
+  const isWrite = method === "POST" || method === "PUT" || method === "DELETE";
+  const timeoutMs = isWrite ? 120_000 : 15_000; // 2min for writes, 15s for reads
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   // Inject JWT if present
   const token = getToken();
@@ -161,7 +198,7 @@ async function _fetchOnce<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     const res = await fetch(path, {
       ...init,
-      signal: controller.signal,
+      signal: init?.signal ?? controller.signal, // allow caller to provide their own signal
       headers: {
         "Content-Type": "application/json",
         ...authHeader,
@@ -212,22 +249,31 @@ export async function isBackendAlive(): Promise<boolean> {
 
 // ─── Stats ──────────────────────────────────────────────────────────
 
-export const getStats = () => request<SystemStats>("/v1/stats");
+export const getStats = () =>
+  withSWR("/v1/stats", () => request<SystemStats>("/v1/stats"), 10_000);
 
 // ─── Tasks (v1) ─────────────────────────────────────────────────────
 
-export const getTasks = () => request<Task[]>("/v1/tasks");
+export const getTasks = () =>
+  withSWR("/v1/tasks", () => request<Task[]>("/v1/tasks"), 15_000);
 
 export const getTask = (id: string) =>
-  request<TaskDetail>(`/v1/tasks/${id}`);
+  withSWR(`/v1/tasks/${id}`, () => request<TaskDetail>(`/v1/tasks/${id}`), 30_000);
 
-export const uploadTask = (
+/** Invalidate all task-related client cache entries after any mutation. */
+function invalidateTasks(id?: string) {
+  invalidate("/v1/tasks");
+  invalidate("/v1/stats");
+  if (id) invalidate(`/v1/tasks/${id}`);
+}
+
+export const uploadTask = async (
   name: string,
   wasmData: number[],
   /** Optional tenant ID — when provided the backend enforces tenant quotas */
   tenantId?: string | null,
-) =>
-  request<Task>("/v1/tasks", {
+) => {
+  const result = await request<Task>("/v1/tasks", {
     method: "POST",
     body: JSON.stringify({
       name,
@@ -235,32 +281,53 @@ export const uploadTask = (
       ...(tenantId ? { tenant_id: tenantId } : {}),
     }),
   });
+  invalidateTasks();
+  return result;
+};
 
-export const startTask = (id: string) =>
-  request<ExecutionResult>(`/v1/tasks/${id}/start`, { method: "POST" });
+export const startTask = async (id: string) => {
+  const result = await request<ExecutionResult>(`/v1/tasks/${id}/start`, { method: "POST" });
+  invalidateTasks(id);
+  return result;
+};
 
-export const stopTask = (id: string) =>
-  request<{ status: string }>(`/v1/tasks/${id}/stop`, { method: "POST" });
+export const stopTask = async (id: string) => {
+  const result = await request<{ status: string }>(`/v1/tasks/${id}/stop`, { method: "POST" });
+  invalidateTasks(id);
+  return result;
+};
 
-export const deleteTask = (id: string) =>
-  request<{ status: string }>(`/v1/tasks/${id}`, { method: "DELETE" });
+export const deleteTask = async (id: string) => {
+  const result = await request<{ status: string }>(`/v1/tasks/${id}`, { method: "DELETE" });
+  invalidateTasks(id);
+  return result;
+};
 
 export interface UpdateTaskRequest {
   name?: string;
   priority?: number;
 }
 
-export const updateTask = (id: string, body: UpdateTaskRequest) =>
-  request<Task>(`/v1/tasks/${id}`, {
+export const updateTask = async (id: string, body: UpdateTaskRequest) => {
+  const result = await request<Task>(`/v1/tasks/${id}`, {
     method: "PUT",
     body: JSON.stringify(body),
   });
+  invalidateTasks(id);
+  return result;
+};
 
-export const pauseTask = (id: string) =>
-  request<{ status: string; note?: string }>(`/v1/tasks/${id}/pause`, { method: "POST" });
+export const pauseTask = async (id: string) => {
+  const result = await request<{ status: string; note?: string }>(`/v1/tasks/${id}/pause`, { method: "POST" });
+  invalidateTasks(id);
+  return result;
+};
 
-export const restartTask = (id: string) =>
-  request<{ status: string; note?: string }>(`/v1/tasks/${id}/restart`, { method: "POST" });
+export const restartTask = async (id: string) => {
+  const result = await request<{ status: string; note?: string }>(`/v1/tasks/${id}/restart`, { method: "POST" });
+  invalidateTasks(id);
+  return result;
+};
 
 export interface ExecutionHistoryResponse {
   task_id: string;
@@ -310,8 +377,14 @@ export const getAdvancedMetrics = (taskId: string) =>
 export async function getPrometheusMetrics(): Promise<string> {
   // In dev: next.config.mjs rewrites /metrics → http://127.0.0.1:8080/metrics
   // In production: Rust actix-web serves /metrics on the same origin
-  const res = await fetch("/metrics");
-  return res.text();
+  try {
+    const res = await fetch("/metrics");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.text();
+  } catch (err) {
+    console.error("[api] getPrometheusMetrics failed:", err);
+    return `# ERROR: Could not fetch metrics\n# ${err instanceof Error ? err.message : String(err)}\n`;
+  }
 }
 
 // ─── File Utility ───────────────────────────────────────────────────
@@ -648,6 +721,13 @@ export const getTaskTraces = (taskId: string) =>
 
 export const getLiveMetrics = () =>
   request<LiveMetrics>("/v1/traces/metrics/live");
+
+/** Seed the trace store with synthetic test traces (dev/test only). */
+export const seedTraces = (count: number = 30) =>
+  request<{ seeded: number; message: string }>("/v1/traces/seed", {
+    method: "POST",
+    body: JSON.stringify({ count }),
+  });
 
 // ─── Scheduler Status ───────────────────────────────────────────────
 

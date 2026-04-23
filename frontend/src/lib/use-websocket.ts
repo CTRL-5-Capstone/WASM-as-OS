@@ -62,9 +62,15 @@ function getWsUrl(): string {
   if (typeof window === "undefined") return "";
   const envWs = process.env.NEXT_PUBLIC_WS_URL;
   if (envWs) return envWs;
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8080";
-  // Replace http:// → ws:// and https:// → wss:// to match the transport security
-  return backendUrl.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://") + "/ws";
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+  if (backendUrl) {
+    // Explicit backend URL configured (dev mode) — convert protocol
+    return backendUrl.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://") + "/ws";
+  }
+  // Production: derive from the current page origin so the WS connects to
+  // the same host that served the static files (works across any domain).
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}/ws`;
 }
 
 export function useWebSocket(opts: UseWebSocketOptions = {}) {
@@ -73,6 +79,8 @@ export function useWebSocket(opts: UseWebSocketOptions = {}) {
   const retryRef = useRef(0);
   const unmountedRef = useRef(false);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const optsRef = useRef(opts); // stable ref to avoid stale closures
+  optsRef.current = opts;
 
   const connect = useCallback(() => {
     if (unmountedRef.current) return;
@@ -105,14 +113,14 @@ export function useWebSocket(opts: UseWebSocketOptions = {}) {
           // live_metrics arrives as a flat object (no nested .data field) —
           // the backend serialises the struct fields directly into the message.
           if (evt.type === "live_metrics") {
-            opts.onLiveMetrics?.(evt as unknown as LiveMetrics);
+            optsRef.current.onLiveMetrics?.(evt as unknown as LiveMetrics);
           }
 
           // Route to caller
-          opts.onEvent?.(evt);
+          optsRef.current.onEvent?.(evt);
 
           // Toast notifications
-          if (!opts.silent) {
+          if (!optsRef.current.silent) {
             // Handle both snake_case (backend task events) and PascalCase (new WS protocol)
             const evtType = evt.type?.toLowerCase().replace("task_", "");
             switch (evtType) {
@@ -159,7 +167,7 @@ export function useWebSocket(opts: UseWebSocketOptions = {}) {
           pingIntervalRef.current = null;
         }
 
-        if (!opts.noReconnect) {
+        if (!optsRef.current.noReconnect) {
           // Exponential backoff: 1s, 2s, 4s, 8s … capped at 30s
           const delay = Math.min(1000 * 2 ** retryRef.current, 30_000);
           retryRef.current++;
