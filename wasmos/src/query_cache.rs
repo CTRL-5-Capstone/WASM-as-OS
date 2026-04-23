@@ -301,3 +301,104 @@ impl QueryCache {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+ 
+    #[tokio::test]
+    async fn test_insert_and_get_tasks() {
+        let cache = QueryCache::new();
+        let data = json!({"tasks": [{"id": "t1"}]});
+        cache.insert_tasks(None, None, 10, 0, data.clone()).await;
+        let cached = cache.get_tasks(None, None, 10, 0).await;
+        assert_eq!(cached.unwrap(), data);
+    }
+ 
+    #[tokio::test]
+    async fn test_cache_miss_returns_none() {
+        let cache = QueryCache::new();
+        assert!(cache.get_tasks(None, None, 10, 0).await.is_none());
+    }
+ 
+    #[tokio::test]
+    async fn test_different_params_are_separate() {
+        let cache = QueryCache::new();
+        let a = json!({"page": "a"});
+        let b = json!({"page": "b"});
+        cache.insert_tasks(None, None, 10, 0, a.clone()).await;
+        cache.insert_tasks(None, None, 10, 10, b.clone()).await;
+        assert_eq!(cache.get_tasks(None, None, 10, 0).await.unwrap(), a);
+        assert_eq!(cache.get_tasks(None, None, 10, 10).await.unwrap(), b);
+    }
+ 
+    #[tokio::test]
+    async fn test_invalidate_tasks_clears_all() {
+        let cache = QueryCache::new();
+        cache.insert_tasks(None, None, 10, 0, json!({"x": 1})).await;
+        cache.insert_tasks(Some("t1"), None, 10, 0, json!({"x": 2})).await;
+        cache.invalidate_tasks().await;
+        assert!(cache.get_tasks(None, None, 10, 0).await.is_none());
+        assert!(cache.get_tasks(Some("t1"), None, 10, 0).await.is_none());
+    }
+ 
+    #[tokio::test]
+    async fn test_stats_insert_and_get() {
+        let cache = QueryCache::new();
+        let stats = json!({"total": 42});
+        cache.insert_stats(stats.clone()).await;
+        assert_eq!(cache.get_stats().await.unwrap(), stats);
+    }
+ 
+    #[tokio::test]
+    async fn test_stats_miss() {
+        let cache = QueryCache::new();
+        assert!(cache.get_stats().await.is_none());
+    }
+ 
+    #[tokio::test]
+    async fn test_invalidate_stats_clears() {
+        let cache = QueryCache::new();
+        cache.insert_stats(json!({"n": 1})).await;
+        cache.invalidate_stats().await;
+        assert!(cache.get_stats().await.is_none());
+    }
+ 
+    #[tokio::test]
+    async fn test_tenant_isolation() {
+        let cache = QueryCache::new();
+        let d1 = json!({"t": "t1"});
+        let d2 = json!({"t": "t2"});
+        cache.insert_tasks(Some("t1"), None, 10, 0, d1.clone()).await;
+        cache.insert_tasks(Some("t2"), None, 10, 0, d2.clone()).await;
+        assert_eq!(cache.get_tasks(Some("t1"), None, 10, 0).await.unwrap(), d1);
+        assert_eq!(cache.get_tasks(Some("t2"), None, 10, 0).await.unwrap(), d2);
+    }
+ 
+    #[tokio::test]
+    async fn test_status_filter_isolation() {
+        let cache = QueryCache::new();
+        let run = json!({"s": "running"});
+        let done = json!({"s": "completed"});
+        cache.insert_tasks(None, Some("running"), 10, 0, run.clone()).await;
+        cache.insert_tasks(None, Some("completed"), 10, 0, done.clone()).await;
+        assert_eq!(cache.get_tasks(None, Some("running"), 10, 0).await.unwrap(), run);
+        assert_eq!(cache.get_tasks(None, Some("completed"), 10, 0).await.unwrap(), done);
+    }
+ 
+    #[test]
+    fn test_tasks_key_format() {
+        let key = tasks_key(Some("acme"), Some("running"), 20, 5);
+        assert!(key.contains("t=acme"));
+        assert!(key.contains("s=running"));
+        assert!(key.contains("lim=20"));
+        assert!(key.contains("off=5"));
+    }
+ 
+    #[test]
+    fn test_tasks_key_defaults() {
+        let key = tasks_key(None, None, 10, 0);
+        assert!(key.contains("t=*"));
+        assert!(key.contains("s=*"));
+    }
+}

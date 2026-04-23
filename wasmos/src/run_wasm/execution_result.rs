@@ -81,3 +81,71 @@ impl ExecutionResult {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+ 
+    #[test]
+    fn test_success_fields() {
+        let res = ExecutionResult::success(
+            100, 5, 65536, 1234,
+            vec!["hello".to_string()],
+            Some("42".to_string()),
+        );
+        assert!(res.success);
+        assert!(res.error.is_none());
+        assert_eq!(res.instructions_executed, 100);
+        assert_eq!(res.syscalls_executed, 5);
+        assert_eq!(res.memory_used_bytes, 65536);
+        assert_eq!(res.duration_us, 1234);
+        assert_eq!(res.stdout_log, vec!["hello"]);
+        assert_eq!(res.return_value, Some("42".to_string()));
+    }
+ 
+    #[test]
+    fn test_failure_fields() {
+        let res = ExecutionResult::failure(
+            "trap: unreachable".to_string(),
+            50, 2, 32768, 500,
+            vec!["log line".to_string()],
+        );
+        assert!(!res.success);
+        assert_eq!(res.error, Some("trap: unreachable".to_string()));
+        assert_eq!(res.instructions_executed, 50);
+        assert_eq!(res.syscalls_executed, 2);
+        assert!(res.return_value.is_none());
+    }
+ 
+    #[test]
+    fn test_success_no_return_value() {
+        let res = ExecutionResult::success(0, 0, 0, 0, vec![], None);
+        assert!(res.success);
+        assert!(res.return_value.is_none());
+        assert!(res.stdout_log.is_empty());
+    }
+ 
+    #[test]
+    fn test_success_serializes_json() {
+        let res = ExecutionResult::success(10, 0, 0, 100, vec![], None);
+        let json = serde_json::to_string(&res).expect("serialize failed");
+        assert!(json.contains("\"success\":true"));
+        assert!(json.contains("\"instructions_executed\":10"));
+        assert!(json.contains("\"duration_us\":100"));
+    }
+ 
+    #[test]
+    fn test_failure_serializes_json() {
+        let res = ExecutionResult::failure("oops".into(), 0, 0, 0, 0, vec![]);
+        let json = serde_json::to_string(&res).expect("serialize failed");
+        assert!(json.contains("\"success\":false"));
+        assert!(json.contains("\"error\":\"oops\""));
+    }
+ 
+    #[test]
+    fn test_failure_preserves_stdout_log() {
+        let logs = vec!["line1".to_string(), "line2".to_string()];
+        let res = ExecutionResult::failure("err".into(), 0, 0, 0, 0, logs.clone());
+        assert_eq!(res.stdout_log, logs);
+    }
+}
+ 

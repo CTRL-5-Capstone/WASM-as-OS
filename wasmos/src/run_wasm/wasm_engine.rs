@@ -1080,4 +1080,44 @@ mod tests {
         let mut tcurs = Curse::new(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x80, 0x80], 11);
         tcurs.parse_wasm();
     }
+    #[test]
+    fn test_leb_tou32_single_byte() {
+        let mut c = Curse::new(vec![0x05], 1);
+        assert_eq!(c.leb_tou32(), 5);
+    }
+ 
+    #[test]
+    fn test_leb_tou32_zero() {
+        let mut c = Curse::new(vec![0x00], 1);
+        assert_eq!(c.leb_tou32(), 0);
+    }
+ 
+    #[test]
+    fn test_leb_toi32_negative_one() {
+        // -1 signed LEB128 = 0x7F
+        let mut c = Curse::new(vec![0x7F], 1);
+        assert_eq!(c.leb_toi32(), -1);
+    }
+    #[test]
+    fn test_leb_toi32_negative_multi_byte() {
+        // -624485 in signed LEB128 = [0x9B, 0xF1, 0x59]
+        let mut c = Curse::new(vec![0x9B, 0xF1, 0x59], 3);
+        assert_eq!(c.leb_toi32(), -624485);
+    }
+ 
+    #[test]
+    fn test_leb_tof32_pi() {
+        let bytes = 3.14_f32.to_le_bytes();
+        let mut c = Curse::new(bytes.to_vec(), 4);
+        let val = c.leb_tof32();
+        assert!((val - 3.14).abs() < 0.001);
+    }
+ 
+    #[test]
+    fn test_leb_tof64_pi() {
+        let bytes = 3.14_f64.to_le_bytes();
+        let mut c = Curse::new(bytes.to_vec(), 8);
+        let val = c.leb_tof64();
+        assert!((val - 3.14).abs() < 0.0001);
+    }
 }

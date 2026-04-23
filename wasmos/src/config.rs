@@ -257,3 +257,98 @@ impl Config {
         Ok(cfg)
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+ 
+    // We can't test Config::load() directly because it reads env/files,
+    // but we can test all the default functions and struct deserialization.
+ 
+    #[test]
+    fn test_default_host() {
+        let host = default_host();
+        assert_eq!(host.to_string(), "0.0.0.0");
+    }
+ 
+    #[test]
+    fn test_default_port() {
+        assert_eq!(default_port(), 8080);
+    }
+ 
+    #[test]
+    fn test_default_workers_nonzero() {
+        assert!(default_workers() > 0);
+    }
+ 
+    #[test]
+    fn test_default_cors_origins() {
+        let origins = default_cors_origins();
+        assert_eq!(origins, vec!["*"]);
+    }
+ 
+    #[test]
+    fn test_default_database_url() {
+        let url = default_database_url();
+        assert!(url.starts_with("postgresql://"));
+    }
+ 
+    #[test]
+    fn test_default_admin_key() {
+        assert_eq!(default_admin_key(), "changeme");
+    }
+ 
+    #[test]
+    fn test_default_auth_disabled() {
+        assert!(!default_auth_enabled());
+    }
+ 
+    #[test]
+    fn test_default_jwt_expiry() {
+        assert_eq!(default_jwt_expiry(), 24);
+    }
+ 
+    #[test]
+    fn test_default_rate_limit() {
+        assert_eq!(default_rate_limit(), 60);
+    }
+ 
+    #[test]
+    fn test_default_max_wasm_size() {
+        assert_eq!(default_max_wasm_size(), 50);
+    }
+ 
+    #[test]
+    fn test_default_max_memory() {
+        assert_eq!(default_max_memory(), 128);
+    }
+ 
+    #[test]
+    fn test_default_execution_timeout() {
+        assert_eq!(default_execution_timeout(), 30);
+    }
+ 
+    #[test]
+    fn test_default_max_instructions() {
+        assert_eq!(default_max_instructions(), 10_000_000);
+    }
+ 
+    #[test]
+    fn test_default_max_stack_depth() {
+        assert_eq!(default_max_stack_depth(), 1024);
+    }
+ 
+    #[test]
+    fn test_default_max_concurrent_tasks() {
+        assert_eq!(default_max_concurrent_tasks(), 100);
+    }
+ 
+    #[test]
+    fn test_default_log_level() {
+        assert_eq!(default_log_level(), "info");
+    }
+ 
+    #[test]
+    fn test_default_log_format() {
+        assert_eq!(default_log_format(), "json");
+    }
+}

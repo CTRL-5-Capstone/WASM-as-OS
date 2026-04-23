@@ -355,3 +355,143 @@ pub enum Code
     // Misc / extended opcode stub (0xFC prefix)
     MiscOp(u32),
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+ 
+    // ── decode_byte ──────────────────────────────────────────────────────
+ 
+    #[test]
+    fn test_decode_byte_i32() {
+        assert!(matches!(decode_byte(0x7F), Some(TypeBytes::I32)));
+    }
+ 
+    #[test]
+    fn test_decode_byte_i64() {
+        assert!(matches!(decode_byte(0x7E), Some(TypeBytes::I64)));
+    }
+ 
+    #[test]
+    fn test_decode_byte_f32() {
+        assert!(matches!(decode_byte(0x7D), Some(TypeBytes::F32)));
+    }
+ 
+    #[test]
+    fn test_decode_byte_f64() {
+        assert!(matches!(decode_byte(0x7C), Some(TypeBytes::F64)));
+    }
+ 
+    #[test]
+    fn test_decode_byte_invalid() {
+        assert!(decode_byte(0x00).is_none());
+        assert!(decode_byte(0xFF).is_none());
+        assert!(decode_byte(0x01).is_none());
+        assert!(decode_byte(0x7B).is_none());
+    }
+ 
+    // ── Module::new ─────────────────────────────────────────────────────
+ 
+    #[test]
+    fn test_module_new_empty_collections() {
+        let m = Module::new();
+        assert!(m.name.is_empty());
+        assert!(m.imps.is_empty());
+        assert!(m.typs.is_empty());
+        assert!(m.fnid.is_empty());
+        assert!(m.tabs.is_empty());
+        assert!(m.memy.is_empty());
+        assert!(m.glob.is_empty());
+        assert!(m.exps.is_empty());
+        assert!(m.strt.is_none());
+        assert!(m.elms.is_empty());
+        assert!(m.fcce.is_empty());
+        assert!(m.mmsg.is_empty());
+        assert_eq!(m.imports, 0);
+    }
+ 
+    // ── Module serialization round-trip ──────────────────────────────────
+ 
+    #[test]
+    fn test_module_serializes() {
+        let m = Module::new();
+        let json = serde_json::to_string(&m).expect("serialize failed");
+        assert!(json.contains("\"name\":\"\""));
+        assert!(json.contains("\"imports\":0"));
+    }
+ 
+    #[test]
+    fn test_module_deserializes() {
+        let m = Module::new();
+        let json = serde_json::to_string(&m).unwrap();
+        let m2: Module = serde_json::from_str(&json).expect("deserialize failed");
+        assert_eq!(m2.imports, 0);
+        assert!(m2.name.is_empty());
+    }
+ 
+    // ── Code enum variants ──────────────────────────────────────────────
+ 
+    #[test]
+    fn test_code_i32_const_clone() {
+        let c = Code::I32Const(42);
+        let c2 = c.clone();
+        assert!(matches!(c2, Code::I32Const(42)));
+    }
+ 
+    #[test]
+    fn test_code_br_table_clone() {
+        let c = Code::BrTable { def: 0, locs: vec![1, 2, 3] };
+        let c2 = c.clone();
+        match c2 {
+            Code::BrTable { def, locs } => {
+                assert_eq!(def, 0);
+                assert_eq!(locs, vec![1, 2, 3]);
+            }
+            _ => panic!("Expected BrTable"),
+        }
+    }
+ 
+    #[test]
+    fn test_code_serializes() {
+        let c = Code::I32Add;
+        let json = serde_json::to_string(&c).expect("serialize failed");
+        assert!(json.contains("I32Add"));
+    }
+ 
+    // ── ExpTyp ──────────────────────────────────────────────────────────
+ 
+    #[test]
+    fn test_exptyp_clone() {
+        let e = ExpTyp::Func;
+        let e2 = e.clone();
+        assert!(matches!(e2, ExpTyp::Func));
+    }
+ 
+    // ── Types struct ────────────────────────────────────────────────────
+ 
+    #[test]
+    fn test_types_struct() {
+        let t = Types {
+            args: vec![Some(TypeBytes::I32), Some(TypeBytes::I64)],
+            turns: vec![Some(TypeBytes::I32)],
+        };
+        assert_eq!(t.args.len(), 2);
+        assert_eq!(t.turns.len(), 1);
+    }
+ 
+    // ── MemoIn struct ───────────────────────────────────────────────────
+ 
+    #[test]
+    fn test_memoin_clone() {
+        let m = MemoIn { flag: 0, memmin: 1, memmax: Some(10) };
+        let m2 = m.clone();
+        assert_eq!(m2.memmin, 1);
+        assert_eq!(m2.memmax, Some(10));
+    }
+ 
+    #[test]
+    fn test_memoin_no_max() {
+        let m = MemoIn { flag: 0, memmin: 1, memmax: None };
+        assert!(m.memmax.is_none());
+    }
+}
+ 
