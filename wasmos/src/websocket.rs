@@ -22,7 +22,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
+use crate::config::Config;
+use crate::db::models::TaskStatus;
 use crate::db::repository::TaskRepository;
+use crate::metrics;
+use crate::run_wasm::execute_wasm_file;
+use crate::scheduler::Scheduler;
 use crate::server::TaskEvent;
 use crate::tracing_spans::TraceStore;
 
@@ -145,6 +150,9 @@ pub enum WsMode {
 pub struct WsConnection {
     task_repo: Arc<TaskRepository>,
     trace_store: Arc<TraceStore>,
+    scheduler: Arc<Scheduler>,
+    config: Arc<Config>,
+    event_tx: broadcast::Sender<TaskEvent>,
     event_rx: Option<broadcast::Receiver<TaskEvent>>,
     hb: Instant,
     mode: WsMode,
@@ -159,6 +167,9 @@ impl WsConnection {
     pub fn new(
         task_repo: Arc<TaskRepository>,
         trace_store: Arc<TraceStore>,
+        scheduler: Arc<Scheduler>,
+        config: Arc<Config>,
+        event_tx: broadcast::Sender<TaskEvent>,
         event_rx: broadcast::Receiver<TaskEvent>,
         mode: WsMode,
     ) -> Self {
@@ -166,6 +177,9 @@ impl WsConnection {
         Self {
             task_repo,
             trace_store,
+            scheduler,
+            config,
+            event_tx,
             event_rx: Some(event_rx),
             hb: Instant::now(),
             mode,
@@ -387,12 +401,34 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsConnection {
                     }
                     Ok(WsClientMessage::Input { data }) => {
                         if self.mode == WsMode::Terminal {
-                            // Echo back to xterm for now; a real PTY would relay stdin
-                            let echo = WsMessage::Output {
-                                data: format!("\r\n[WasmOS shell] > {}", data.trim()),
-                            };
-                            if let Ok(json) = serde_json::to_string(&echo) {
-                                ctx.text(json);
+                            let line = data.trim().to_string();
+                            if line.is_empty() {
+                                // Just re-prompt on empty line
+                                let prompt = WsMessage::Output {
+                                    data: "\r\n".to_string(),
+                                };
+                                if let Ok(json) = serde_json::to_string(&prompt) {
+                                    ctx.text(json);
+                                }
+                            } else {
+                                // Parse and dispatch the command asynchronously
+                                let repo = self.task_repo.clone();
+                                let trace_store = self.trace_store.clone();
+                                let scheduler = self.scheduler.clone();
+                                let config = self.config.clone();
+                                let event_tx = self.event_tx.clone();
+
+                                let fut = async move {
+                                    handle_terminal_command(&line, repo, trace_store, scheduler, config, event_tx).await
+                                };
+                                ctx.spawn(
+                                    fut.into_actor(self).map(|output, _act, ctx2| {
+                                        let msg = WsMessage::Output { data: output };
+                                        if let Ok(json) = serde_json::to_string(&msg) {
+                                            ctx2.text(json);
+                                        }
+                                    }),
+                                );
                             }
                         }
                     }
@@ -492,8 +528,734 @@ pub async fn ws_handler(
     let conn = WsConnection::new(
         data.task_repo.clone(),
         data.trace_store.clone(),
+        data.scheduler.clone(),
+        data.config.clone(),
+        data.event_tx.clone(),
         rx,
         mode,
     );
     ws::start(conn, &req, stream)
+}
+
+// ─── Terminal command processor ──────────────────────────────────────────────
+
+/// Process a CLI command from the WebSocket terminal and return ANSI-formatted output.
+/// All output lines are `\r\n`-terminated for xterm.js compatibility.
+async fn handle_terminal_command(
+    line: &str,
+    repo: Arc<TaskRepository>,
+    trace_store: Arc<TraceStore>,
+    scheduler: Arc<Scheduler>,
+    config: Arc<Config>,
+    event_tx: broadcast::Sender<TaskEvent>,
+) -> String {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.is_empty() {
+        return String::new();
+    }
+    let cmd = parts[0];
+    let args = &parts[1..];
+    let mut out = String::new();
+
+    match cmd {
+        // ── Help ──────────────────────────────────────────────────────────
+        "help" | "?" => {
+            out.push_str("\r\n\x1b[96m╔══════════════════════════════════════════════════════════╗\x1b[0m");
+            out.push_str("\r\n\x1b[96m║        WASM-OS Command Center CLI v5.0 (WebSocket)       ║\x1b[0m");
+            out.push_str("\r\n\x1b[96m╚══════════════════════════════════════════════════════════╝\x1b[0m");
+            out.push_str("\r\n");
+            out.push_str("\r\n\x1b[33mTask Management:\x1b[0m");
+            out.push_str("\r\n  \x1b[92mps\x1b[0m / \x1b[92mls\x1b[0m              List all WASM modules");
+            out.push_str("\r\n  \x1b[92mrun\x1b[0m <id>              Execute a WASM module");
+            out.push_str("\r\n  \x1b[92mstop\x1b[0m <id>             Stop a running module");
+            out.push_str("\r\n  \x1b[92mkill\x1b[0m <id>             Stop + preempt a running module");
+            out.push_str("\r\n  \x1b[92mrm\x1b[0m <id>               Delete a module");
+            out.push_str("\r\n  \x1b[92minfo\x1b[0m <id>             Show detailed task info");
+            out.push_str("\r\n  \x1b[92mstatus\x1b[0m <id>           Show task status");
+            out.push_str("\r\n");
+            out.push_str("\r\n\x1b[33mAnalysis:\x1b[0m");
+            out.push_str("\r\n  \x1b[92msecurity\x1b[0m <id>         Static binary analysis");
+            out.push_str("\r\n  \x1b[92mlogs\x1b[0m <id>             Show task logs");
+            out.push_str("\r\n  \x1b[92mhistory\x1b[0m <id>          Execution history for a task");
+            out.push_str("\r\n");
+            out.push_str("\r\n\x1b[33mSystem:\x1b[0m");
+            out.push_str("\r\n  \x1b[92mstats\x1b[0m                 System-wide statistics");
+            out.push_str("\r\n  \x1b[92mhealth\x1b[0m                Backend health check");
+            out.push_str("\r\n  \x1b[92mmetrics\x1b[0m               Prometheus metrics (first 25 lines)");
+            out.push_str("\r\n  \x1b[92mscheduler\x1b[0m             Scheduler status");
+            out.push_str("\r\n  \x1b[92mtraces\x1b[0m [n]            Recent traces (default 10)");
+            out.push_str("\r\n  \x1b[92maudit\x1b[0m [n]             Recent audit log (default 10)");
+            out.push_str("\r\n  \x1b[92msnapshots\x1b[0m <id>        List snapshots for a task");
+            out.push_str("\r\n  \x1b[92mtestfiles\x1b[0m             List available test files");
+            out.push_str("\r\n  \x1b[92mconfig\x1b[0m                Show server configuration");
+            out.push_str("\r\n  \x1b[92mlive\x1b[0m                  Live metrics (P50/P95/P99, throughput)");
+            out.push_str("\r\n");
+            out.push_str("\r\n\x1b[33mMisc:\x1b[0m");
+            out.push_str("\r\n  \x1b[92mclear\x1b[0m                 Clear terminal");
+            out.push_str("\r\n  \x1b[92mversion\x1b[0m               Show version info");
+            out.push_str("\r\n  \x1b[92mwhoami\x1b[0m                Show session info");
+            out.push_str("\r\n  \x1b[92muptime\x1b[0m                Show server uptime");
+        }
+
+        // ── Task listing ──────────────────────────────────────────────────
+        "ps" | "ls" | "list" | "tasks" => {
+            match repo.list_all().await {
+                Ok(tasks) => {
+                    if tasks.is_empty() {
+                        out.push_str("\r\n\x1b[90m(no modules loaded)\x1b[0m");
+                    } else {
+                        out.push_str("\r\n\x1b[90m");
+                        out.push_str(&"─".repeat(80));
+                        out.push_str("\x1b[0m");
+                        out.push_str(&format!(
+                            "\r\n\x1b[1m{:<36} {:<22} {:<12} {:<10}\x1b[0m",
+                            "ID", "NAME", "STATUS", "SIZE"
+                        ));
+                        out.push_str("\r\n\x1b[90m");
+                        out.push_str(&"─".repeat(80));
+                        out.push_str("\x1b[0m");
+                        for t in &tasks {
+                            let status_str = format!("{:?}", t.status);
+                            let color = match t.status {
+                                TaskStatus::Running   => "\x1b[92m",
+                                TaskStatus::Failed    => "\x1b[91m",
+                                TaskStatus::Completed => "\x1b[96m",
+                                TaskStatus::Stopped   => "\x1b[93m",
+                                _                     => "\x1b[90m",
+                            };
+                            let size_kb = t.file_size_bytes / 1024;
+                            out.push_str(&format!(
+                                "\r\n{:<36} {:<22} {}{:<12}\x1b[0m {:<10}",
+                                t.id, t.name, color, status_str, format!("{}KB", size_kb)
+                            ));
+                        }
+                        out.push_str("\r\n\x1b[90m");
+                        out.push_str(&"─".repeat(80));
+                        out.push_str("\x1b[0m");
+                        out.push_str(&format!("\r\n\x1b[90m{} module(s) total\x1b[0m", tasks.len()));
+                    }
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ failed to fetch tasks: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Task info ─────────────────────────────────────────────────────
+        "info" | "describe" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: info <task-id>\x1b[0m"); return out; }
+            };
+            match repo.get_by_id(id).await {
+                Ok(Some(t)) => {
+                    out.push_str(&format!("\r\n\x1b[1m📋 Task Detail: {}\x1b[0m", t.id));
+                    out.push_str(&format!("\r\n  Name:       \x1b[96m{}\x1b[0m", t.name));
+                    out.push_str(&format!("\r\n  Status:     \x1b[92m{:?}\x1b[0m", t.status));
+                    out.push_str(&format!("\r\n  Priority:   \x1b[33m{}\x1b[0m", t.priority));
+                    out.push_str(&format!("\r\n  Size:       {} bytes", t.file_size_bytes));
+                    out.push_str(&format!("\r\n  Path:       {}", t.path));
+                    out.push_str(&format!("\r\n  Tenant:     {}", t.tenant_id.as_deref().unwrap_or("default")));
+                    out.push_str(&format!("\r\n  Created:    {}", t.created_at));
+                    out.push_str(&format!("\r\n  Updated:    {}", t.updated_at));
+                }
+                Ok(None) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ task not found: {}\x1b[0m", id));
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Task status ───────────────────────────────────────────────────
+        "status" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: status <task-id>\x1b[0m"); return out; }
+            };
+            match repo.get_by_id(id).await {
+                Ok(Some(t)) => {
+                    let color = match t.status {
+                        TaskStatus::Running   => "\x1b[92m",
+                        TaskStatus::Failed    => "\x1b[91m",
+                        TaskStatus::Completed => "\x1b[96m",
+                        TaskStatus::Stopped   => "\x1b[93m",
+                        _                     => "\x1b[90m",
+                    };
+                    out.push_str(&format!("\r\n{} → {}{:?}\x1b[0m", t.name, color, t.status));
+                }
+                Ok(None) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ task not found: {}\x1b[0m", id));
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Execute / Run ─────────────────────────────────────────────────
+        "run" | "start" | "execute" | "wasm-run" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: run <task-id>\x1b[0m"); return out; }
+            };
+            match repo.get_by_id(id).await {
+                Ok(Some(task)) => {
+                    if task.status == TaskStatus::Running {
+                        out.push_str(&format!("\r\n\x1b[93m⚠ task {} is already running\x1b[0m", id));
+                        return out;
+                    }
+                    out.push_str(&format!("\r\n\x1b[33m▶ executing\x1b[0m {}…", task.name));
+
+                    // Update status to running
+                    let _ = repo.update_status(id, TaskStatus::Running).await;
+                    let _ = event_tx.send(TaskEvent {
+                        event: "started".into(),
+                        task_id: id.to_string(),
+                        task_name: task.name.clone(),
+                        status: "running".into(),
+                    });
+
+                    let task_path = crate::server::resolve_wasm_file_path_pub(&task.path);
+                    let start_time = std::time::Instant::now();
+                    let timeout_secs = config.limits.execution_timeout_secs;
+
+                    let task_path_ws = task_path.clone();
+                    let exec_result = match tokio::time::timeout(
+                        tokio::time::Duration::from_secs(timeout_secs),
+                        actix_web::web::block(move || execute_wasm_file(&task_path_ws, None)),
+                    ).await {
+                        Ok(Ok(Ok(result))) => result,
+                        Ok(Ok(Err(e))) => {
+                            crate::run_wasm::ExecutionResult::failure(
+                                e, 0, 0, 0, vec![], 0,
+                                start_time.elapsed().as_micros() as u64, vec![],
+                                "Permissive".to_string(),
+                            )
+                        }
+                        Ok(Err(e)) => {
+                            crate::run_wasm::ExecutionResult::failure(
+                                format!("Thread error: {}", e), 0, 0, 0, vec![], 0,
+                                start_time.elapsed().as_micros() as u64, vec![],
+                                "Permissive".to_string(),
+                            )
+                        }
+                        Err(_) => {
+                            crate::run_wasm::ExecutionResult::failure(
+                                format!("Execution timed out after {}s", timeout_secs),
+                                0, 0, 0, vec![], 0,
+                                start_time.elapsed().as_micros() as u64, vec![],
+                                "Permissive".to_string(),
+                            )
+                        }
+                    };
+
+                    let duration_us = start_time.elapsed().as_micros() as i64;
+                    let final_status = if exec_result.success { TaskStatus::Completed } else { TaskStatus::Failed };
+                    let status_label = format!("{:?}", final_status);
+
+                    // Update DB
+                    let _ = repo.update_status(id, final_status).await;
+                    let _ = repo.add_execution(
+                        id, duration_us, exec_result.success, exec_result.error.clone(),
+                        exec_result.instructions_executed as i64,
+                        exec_result.syscalls_executed as i64,
+                        exec_result.memory_used_bytes as i64,
+                    ).await;
+
+                    // Broadcast event
+                    let _ = event_tx.send(TaskEvent {
+                        event: if exec_result.success { "completed".into() } else { "failed".into() },
+                        task_id: id.to_string(),
+                        task_name: task.name.clone(),
+                        status: status_label,
+                    });
+
+                    // Update Prometheus
+                    metrics::TASK_EXECUTIONS_TOTAL
+                        .with_label_values(&[if exec_result.success { "success" } else { "failed" }])
+                        .inc();
+                    metrics::TASK_EXECUTION_DURATION
+                        .with_label_values(&[&task.name])
+                        .observe(duration_us as f64 / 1_000_000.0);
+
+                    if exec_result.success {
+                        out.push_str(&format!(
+                            "\r\n\x1b[92m✓ completed\x1b[0m  duration={}µs  instr={}  syscalls={}  mem={}B",
+                            exec_result.duration_us,
+                            exec_result.instructions_executed,
+                            exec_result.syscalls_executed,
+                            exec_result.memory_used_bytes,
+                        ));
+                        if !exec_result.stdout_log.is_empty() {
+                            out.push_str("\r\n\x1b[90m── stdout ──\x1b[0m");
+                            for l in &exec_result.stdout_log {
+                                out.push_str(&format!("\r\n  \x1b[96m{}\x1b[0m", l));
+                            }
+                        }
+                        if let Some(ref rv) = exec_result.return_value {
+                            out.push_str(&format!("\r\n\x1b[33m↩ return:\x1b[0m {}", rv));
+                        }
+                    } else {
+                        out.push_str(&format!(
+                            "\r\n\x1b[91m✗ failed\x1b[0m  {}",
+                            exec_result.error.as_deref().unwrap_or("unknown error")
+                        ));
+                    }
+                }
+                Ok(None) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ task not found: {}\x1b[0m", id));
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Stop ──────────────────────────────────────────────────────────
+        "stop" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: stop <task-id>\x1b[0m"); return out; }
+            };
+            match repo.get_by_id(id).await {
+                Ok(Some(task)) => {
+                    if task.status != TaskStatus::Running {
+                        out.push_str(&format!("\r\n\x1b[93m⚠ task {} is not running (status: {:?})\x1b[0m", id, task.status));
+                        return out;
+                    }
+                    let _ = repo.update_status(id, TaskStatus::Stopped).await;
+                    out.push_str(&format!("\r\n\x1b[92m✓ stopped\x1b[0m {}", task.name));
+                }
+                Ok(None) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ task not found: {}\x1b[0m", id));
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Kill (stop + scheduler preempt) ───────────────────────────────
+        "kill" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: kill <task-id>\x1b[0m"); return out; }
+            };
+            let preempted = scheduler.preempt_task(id).await;
+            let _ = repo.update_status(id, TaskStatus::Stopped).await;
+            if preempted {
+                out.push_str(&format!("\r\n\x1b[92m✓ killed\x1b[0m {} (preempted from scheduler)", id));
+            } else {
+                out.push_str(&format!("\r\n\x1b[92m✓ stopped\x1b[0m {} (was not in scheduler queue)", id));
+            }
+        }
+
+        // ── Delete ────────────────────────────────────────────────────────
+        "rm" | "delete" | "remove" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: rm <task-id>\x1b[0m"); return out; }
+            };
+            // Check if task exists first
+            match repo.get_by_id(id).await {
+                Ok(Some(_)) => {
+                    match repo.delete(id).await {
+                        Ok(()) => {
+                            out.push_str(&format!("\r\n\x1b[92m✓ deleted\x1b[0m {}", id));
+                        }
+                        Err(e) => {
+                            out.push_str(&format!("\r\n\x1b[91m✗ delete failed: {}\x1b[0m", e));
+                        }
+                    }
+                }
+                Ok(None) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ task not found: {}\x1b[0m", id));
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Stats ─────────────────────────────────────────────────────────
+        "stats" => {
+            match repo.get_stats().await {
+                Ok(s) => {
+                    out.push_str("\r\n\x1b[1m📊 System Stats\x1b[0m");
+                    out.push_str(&format!("\r\n  Total Tasks:      \x1b[96m{}\x1b[0m", s.total_tasks));
+                    out.push_str(&format!("\r\n  Running:          \x1b[92m{}\x1b[0m", s.running_tasks));
+                    out.push_str(&format!("\r\n  Completed:        \x1b[96m{}\x1b[0m", s.completed_tasks));
+                    out.push_str(&format!("\r\n  Failed:           \x1b[91m{}\x1b[0m", s.failed_tasks));
+                    out.push_str(&format!("\r\n  Pending:          \x1b[33m{}\x1b[0m", s.pending_tasks));
+                    out.push_str(&format!("\r\n  Total Runs:       \x1b[96m{}\x1b[0m", s.total_runs));
+                    out.push_str(&format!("\r\n  Instructions:     \x1b[33m{}\x1b[0m", s.total_instructions));
+                    out.push_str(&format!("\r\n  Syscalls:         \x1b[33m{}\x1b[0m", s.total_syscalls));
+                    out.push_str(&format!("\r\n  Avg Duration:     \x1b[33m{}µs\x1b[0m", s.avg_duration_us));
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ stats failed: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Health ────────────────────────────────────────────────────────
+        "health" | "ping" => {
+            match repo.health_check().await {
+                Ok(()) => {
+                    out.push_str("\r\n\x1b[92m● backend\x1b[0m  status=\x1b[92mhealthy\x1b[0m  db=\x1b[92mconnected\x1b[0m");
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ backend\x1b[0m  status=\x1b[91munhealthy\x1b[0m  error={}", e));
+                }
+            }
+        }
+
+        // ── Metrics ───────────────────────────────────────────────────────
+        "metrics" => {
+            match metrics::encode_metrics() {
+                Ok(txt) => {
+                    let lines: Vec<&str> = txt.lines()
+                        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+                        .take(25)
+                        .collect();
+                    out.push_str("\r\n\x1b[90m── Prometheus metrics (first 25 non-comment lines) ──\x1b[0m");
+                    for l in lines {
+                        out.push_str(&format!("\r\n  \x1b[90m{}\x1b[0m", l));
+                    }
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ metrics error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Scheduler status ──────────────────────────────────────────────
+        "scheduler" | "sched" => {
+            let ss = scheduler.status_snapshot().await;
+            out.push_str("\r\n\x1b[1m⏱ Scheduler Status\x1b[0m");
+            out.push_str(&format!("\r\n  Queued:           \x1b[33m{}\x1b[0m", ss.queued));
+            out.push_str(&format!("\r\n  Running:          \x1b[92m{}\x1b[0m", ss.running));
+            out.push_str(&format!("\r\n  Max Concurrent:   \x1b[96m{}\x1b[0m", ss.max_concurrent));
+            out.push_str(&format!("\r\n  Time Slice:       {}ms", ss.slice_ms));
+            out.push_str(&format!("\r\n  Timeout:          {}s", ss.timeout_secs));
+        }
+
+        // ── Traces ────────────────────────────────────────────────────────
+        "traces" | "trace" => {
+            let n: usize = args.first().and_then(|a| a.parse().ok()).unwrap_or(10);
+            let traces = trace_store.recent(n).await;
+            if traces.is_empty() {
+                out.push_str("\r\n\x1b[90m(no traces recorded)\x1b[0m");
+            } else {
+                out.push_str(&format!("\r\n\x1b[1m🔍 Recent Traces ({})\x1b[0m", traces.len()));
+                out.push_str("\r\n\x1b[90m");
+                out.push_str(&"─".repeat(90));
+                out.push_str("\x1b[0m");
+                out.push_str(&format!(
+                    "\r\n{:<36} {:<20} {:<10} {:<12} {:<8}",
+                    "TRACE ID", "TASK", "SUCCESS", "DURATION", "SPANS"
+                ));
+                out.push_str("\r\n\x1b[90m");
+                out.push_str(&"─".repeat(90));
+                out.push_str("\x1b[0m");
+                for t in &traces {
+                    let sc = if t.success { "\x1b[92m✓\x1b[0m" } else { "\x1b[91m✗\x1b[0m" };
+                    let dur = t.total_duration_us.map(|d| format!("{}µs", d)).unwrap_or_else(|| "—".into());
+                    out.push_str(&format!(
+                        "\r\n{:<36} {:<20} {:<10} {:<12} {:<8}",
+                        &t.trace_id[..t.trace_id.len().min(35)],
+                        &t.task_name[..t.task_name.len().min(19)],
+                        sc,
+                        dur,
+                        t.spans.len()
+                    ));
+                }
+                out.push_str("\r\n\x1b[90m");
+                out.push_str(&"─".repeat(90));
+                out.push_str("\x1b[0m");
+            }
+        }
+
+        // ── Audit log ─────────────────────────────────────────────────────
+        "audit" => {
+            let n: usize = args.first().and_then(|a| a.parse().ok()).unwrap_or(10);
+            match repo.list_audit_log(n as i64).await {
+                Ok(entries) => {
+                    if entries.is_empty() {
+                        out.push_str("\r\n\x1b[90m(no audit entries)\x1b[0m");
+                    } else {
+                        out.push_str(&format!("\r\n\x1b[1m📋 Audit Log (last {})\x1b[0m", entries.len()));
+                        for e in &entries {
+                            out.push_str(&format!(
+                                "\r\n  \x1b[90m{}\x1b[0m  \x1b[33m{}\x1b[0m ({})  {}  {}",
+                                e.ts,
+                                e.user_name,
+                                e.role,
+                                e.action,
+                                e.resource.as_deref().unwrap_or("")
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ audit log error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Security analysis ─────────────────────────────────────────────
+        "security" | "scan" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: security <task-id>\x1b[0m"); return out; }
+            };
+            match repo.get_by_id(id).await {
+                Ok(Some(task)) => {
+                    let file_path = crate::server::resolve_wasm_file_path_pub(&task.path);
+                    match std::fs::read(&file_path) {
+                        Ok(bytes) => {
+                            let is_wasm = bytes.len() >= 4 && bytes[0..4] == [0x00, 0x61, 0x73, 0x6D];
+                            out.push_str(&format!("\r\n\x1b[1m🔒 Security Report: {} ({})\x1b[0m", task.name, id));
+                            out.push_str(&format!("\r\n  File Size:     {} bytes", bytes.len()));
+                            out.push_str(&format!("\r\n  Valid WASM:    {}", if is_wasm { "\x1b[92myes\x1b[0m" } else { "\x1b[91mno\x1b[0m" }));
+                            let content = String::from_utf8_lossy(&bytes);
+                            let suspicious: Vec<&str> = ["fd_write", "fd_read", "proc_exit", "environ", "args_get", "sock_"]
+                                .iter()
+                                .filter(|s| content.contains(**s))
+                                .copied()
+                                .collect();
+                            if suspicious.is_empty() {
+                                out.push_str("\r\n  Risk Level:    \x1b[92mLOW\x1b[0m");
+                                out.push_str("\r\n  Summary:       No suspicious WASI imports detected");
+                            } else {
+                                let risk = if suspicious.len() > 3 { "HIGH" } else { "MEDIUM" };
+                                let color = if risk == "HIGH" { "91" } else { "93" };
+                                out.push_str(&format!("\r\n  Risk Level:    \x1b[{}m{}\x1b[0m", color, risk));
+                                out.push_str("\r\n  Capabilities:");
+                                for s in &suspicious {
+                                    out.push_str(&format!("\r\n    \x1b[93m⚠\x1b[0m  {}", s));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            out.push_str(&format!("\r\n\x1b[91m✗ cannot read file: {}\x1b[0m", e));
+                        }
+                    }
+                }
+                Ok(None) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ task not found: {}\x1b[0m", id));
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Logs ──────────────────────────────────────────────────────────
+        "logs" | "log" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: logs <task-id>\x1b[0m"); return out; }
+            };
+            match repo.get_execution_history(id, 5).await {
+                Ok(execs) => {
+                    if execs.is_empty() {
+                        out.push_str(&format!("\r\n\x1b[90m(no execution history for {})\x1b[0m", id));
+                    } else {
+                        out.push_str(&format!("\r\n\x1b[1m📄 Logs for {}\x1b[0m", id));
+                        for ex in &execs {
+                            let sc = if ex.success { "\x1b[92m✓\x1b[0m" } else { "\x1b[91m✗\x1b[0m" };
+                            let dur = ex.duration_us.unwrap_or(0);
+                            out.push_str(&format!(
+                                "\r\n  {} {}  duration={}µs  instr={}  syscalls={}  mem={}B",
+                                sc, ex.started_at,
+                                dur,
+                                ex.instructions_executed,
+                                ex.syscalls_executed,
+                                ex.memory_used_bytes,
+                            ));
+                            if let Some(ref err) = ex.error {
+                                out.push_str(&format!("\r\n    \x1b[91merror: {}\x1b[0m", err));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ logs error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Execution history ─────────────────────────────────────────────
+        "history" | "hist" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: history <task-id>\x1b[0m"); return out; }
+            };
+            let n: i64 = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(10);
+            match repo.get_execution_history(id, n).await {
+                Ok(execs) => {
+                    if execs.is_empty() {
+                        out.push_str(&format!("\r\n\x1b[90m(no execution history for {})\x1b[0m", id));
+                    } else {
+                        out.push_str(&format!("\r\n\x1b[1m📜 Execution History for {} ({} records)\x1b[0m", id, execs.len()));
+                        out.push_str(&format!(
+                            "\r\n  {:<36} {:<10} {:<12} {:<10} {:<10}",
+                            "EXECUTION ID", "SUCCESS", "DURATION", "INSTR", "SYSCALLS"
+                        ));
+                        for ex in &execs {
+                            let sc = if ex.success { "\x1b[92m✓\x1b[0m " } else { "\x1b[91m✗\x1b[0m " };
+                            let dur = ex.duration_us.unwrap_or(0);
+                            out.push_str(&format!(
+                                "\r\n  {:<36} {}{:<8} {:<12} {:<10} {:<10}",
+                                &ex.execution_id,
+                                sc,
+                                "",
+                                format!("{}µs", dur),
+                                ex.instructions_executed,
+                                ex.syscalls_executed
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ history error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Snapshots ─────────────────────────────────────────────────────
+        "snapshots" | "snap" => {
+            let id = match args.first() {
+                Some(id) => *id,
+                None => { out.push_str("\r\n\x1b[91musage: snapshots <task-id>\x1b[0m"); return out; }
+            };
+            match repo.list_snapshots(id).await {
+                Ok(snaps) => {
+                    if snaps.is_empty() {
+                        out.push_str(&format!("\r\n\x1b[90m(no snapshots for {})\x1b[0m", id));
+                    } else {
+                        out.push_str(&format!("\r\n\x1b[1m📸 Snapshots for {} ({} total)\x1b[0m", id, snaps.len()));
+                        for s in &snaps {
+                            out.push_str(&format!(
+                                "\r\n  \x1b[96m{}\x1b[0m  captured={}  note={}",
+                                s.id, s.captured_at,
+                                s.note.as_deref().unwrap_or("—")
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ snapshot error: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Test files ────────────────────────────────────────────────────
+        "testfiles" | "tests" => {
+            let wasm_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wasm_files");
+            match std::fs::read_dir(&wasm_dir) {
+                Ok(entries) => {
+                    let mut files: Vec<String> = entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.file_name().to_string_lossy().to_string())
+                        .filter(|n| n.ends_with(".wasm") || n.ends_with(".wat"))
+                        .collect();
+                    files.sort();
+                    if files.is_empty() {
+                        out.push_str("\r\n\x1b[90m(no test files found)\x1b[0m");
+                    } else {
+                        out.push_str(&format!("\r\n\x1b[1m📁 Test Files ({} found)\x1b[0m", files.len()));
+                        for f in &files {
+                            let ext = if f.ends_with(".wat") { "\x1b[33m" } else { "\x1b[96m" };
+                            out.push_str(&format!("\r\n  {}{}\x1b[0m", ext, f));
+                        }
+                    }
+                }
+                Err(e) => {
+                    out.push_str(&format!("\r\n\x1b[91m✗ cannot list test files: {}\x1b[0m", e));
+                }
+            }
+        }
+
+        // ── Config ────────────────────────────────────────────────────────
+        "config" | "cfg" => {
+            out.push_str("\r\n\x1b[1m⚙ Server Configuration\x1b[0m");
+            out.push_str(&format!("\r\n  Host:               {}:{}", config.server.host, config.server.port));
+            out.push_str(&format!("\r\n  Workers:            {}", config.server.workers));
+            out.push_str(&format!("\r\n  Auth Enabled:       {}", config.security.auth_enabled));
+            out.push_str(&format!("\r\n  Rate Limit:         {}/min", config.security.rate_limit_per_minute));
+            out.push_str(&format!("\r\n  Max Memory:         {}MB", config.limits.max_memory_mb));
+            out.push_str(&format!("\r\n  Max Instructions:   {}", config.limits.max_instructions));
+            out.push_str(&format!("\r\n  Exec Timeout:       {}s", config.limits.execution_timeout_secs));
+            out.push_str(&format!("\r\n  Max Concurrent:     {}", config.limits.max_concurrent_tasks));
+            out.push_str(&format!("\r\n  Max Stack Depth:    {}", config.limits.max_stack_depth));
+            out.push_str(&format!("\r\n  Log Level:          {}", config.logging.level));
+        }
+
+        // ── Version ───────────────────────────────────────────────────────
+        "version" | "ver" => {
+            out.push_str("\r\n\x1b[96mWASM-OS Command Center v5.0\x1b[0m");
+            out.push_str("\r\n  Engine:   wasmos-rs");
+            out.push_str("\r\n  Protocol: wasmos-v2 (WebSocket)");
+            out.push_str("\r\n  Mode:     Terminal (server-side processing)");
+        }
+
+        // ── Whoami ────────────────────────────────────────────────────────
+        "whoami" | "who" => {
+            out.push_str("\r\n\x1b[1m👤 Session Info\x1b[0m");
+            out.push_str("\r\n  Mode:     \x1b[96mTerminal (WebSocket)\x1b[0m");
+            out.push_str("\r\n  Auth:     ");
+            if config.security.auth_enabled {
+                out.push_str("\x1b[92menabled\x1b[0m");
+            } else {
+                out.push_str("\x1b[93mdisabled (dev mode)\x1b[0m");
+            }
+        }
+
+        // ── Uptime ────────────────────────────────────────────────────────
+        "uptime" => {
+            out.push_str("\r\n\x1b[92m● server is running\x1b[0m");
+            match repo.health_check().await {
+                Ok(()) => out.push_str("  db=\x1b[92mconnected\x1b[0m"),
+                Err(_) => out.push_str("  db=\x1b[91mdisconnected\x1b[0m"),
+            }
+        }
+
+        // ── Live metrics ──────────────────────────────────────────────────
+        "live" | "livemetrics" => {
+            let m = trace_store.live_metrics(100).await;
+            out.push_str("\r\n\x1b[1m📈 Live Metrics\x1b[0m");
+            out.push_str(&format!("\r\n  Window Size:      {}", m.window_size));
+            out.push_str(&format!("\r\n  Success Rate:     \x1b[92m{:.1}%\x1b[0m", m.success_rate * 100.0));
+            out.push_str(&format!("\r\n  Error Rate:       \x1b[91m{:.1}%\x1b[0m", m.error_rate * 100.0));
+            out.push_str(&format!("\r\n  P50 Latency:      {}µs", m.p50_us));
+            out.push_str(&format!("\r\n  P95 Latency:      {}µs", m.p95_us));
+            out.push_str(&format!("\r\n  P99 Latency:      {}µs", m.p99_us));
+            out.push_str(&format!("\r\n  Avg Latency:      {}µs", m.avg_us));
+            out.push_str(&format!("\r\n  Throughput:       {:.2}/min", m.throughput_per_min));
+        }
+
+        // ── Clear ─────────────────────────────────────────────────────────
+        "clear" | "cls" => {
+            out.push_str("\x1b[2J\x1b[H");
+        }
+
+        // ── Exit ──────────────────────────────────────────────────────────
+        "exit" | "quit" | "logout" => {
+            out.push_str("\r\n\x1b[90mClosing terminal session…\x1b[0m");
+        }
+
+        // ── Unknown command ───────────────────────────────────────────────
+        _ => {
+            out.push_str(&format!(
+                "\r\n\x1b[91m✗ command not found:\x1b[0m {}  (type \x1b[96mhelp\x1b[0m for available commands)",
+                cmd
+            ));
+        }
+    }
+
+    out
 }

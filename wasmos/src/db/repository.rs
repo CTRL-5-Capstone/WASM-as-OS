@@ -1,5 +1,5 @@
 use super::models::{AuditLog, ExecutionHistory, Snapshot, Task, TaskMetrics, TaskStatus, Tenant};
-use super::Db;
+use super::{with_retry, Db};
 use chrono::Utc;
 use sqlx::Row;
 use uuid::Uuid;
@@ -54,12 +54,20 @@ impl TaskRepository {
     }
 
     pub async fn get_by_id(&self, id: &str) -> Result<Option<Task>, sqlx::Error> {
-        sqlx::query_as::<_, Task>(
-            "SELECT id, name, path, status, created_at, updated_at, file_size_bytes, tenant_id, priority FROM tasks WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
+        let pool = self.pool.clone();
+        let id = id.to_string();
+        with_retry(3, || {
+            let pool = pool.clone();
+            let id = id.clone();
+            async move {
+                sqlx::query_as::<_, Task>(
+                    "SELECT id, name, path, status, created_at, updated_at, file_size_bytes, tenant_id, priority FROM tasks WHERE id = $1",
+                )
+                .bind(id)
+                .fetch_optional(&pool)
+                .await
+            }
+        }).await
     }
 
     #[allow(dead_code)]
@@ -97,14 +105,20 @@ impl TaskRepository {
         offset: i64,
     ) -> Result<Vec<Task>, sqlx::Error> {
         let limit = limit.min(200);
-        sqlx::query_as::<_, Task>(
-            "SELECT id, name, path, status, created_at, updated_at, file_size_bytes, tenant_id, priority \
-             FROM tasks ORDER BY priority DESC, created_at DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await
+        let pool = self.pool.clone();
+        with_retry(3, || {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_as::<_, Task>(
+                    "SELECT id, name, path, status, created_at, updated_at, file_size_bytes, tenant_id, priority \
+                     FROM tasks ORDER BY priority DESC, created_at DESC LIMIT $1 OFFSET $2",
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+            }
+        }).await
     }
 
     /// Total task count — useful for pagination metadata in API responses.
@@ -357,28 +371,40 @@ impl TaskRepository {
 
     pub async fn get_stats(&self) -> Result<SystemStats, sqlx::Error> {
         // Single atomic query — avoids 5 round-trips and race conditions between counts
-        let row = sqlx::query(
-            r#"SELECT
-                  COUNT(*)                                            AS total_tasks,
-                  COUNT(*) FILTER (WHERE status = 'running')         AS running_tasks,
-                  COUNT(*) FILTER (WHERE status = 'failed')          AS failed_tasks,
-                  COUNT(*) FILTER (WHERE status = 'completed')       AS completed_tasks,
-                  COUNT(*) FILTER (WHERE status = 'pending')         AS pending_tasks
-               FROM tasks"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let pool = self.pool.clone();
+        let row = with_retry(3, || {
+            let pool = pool.clone();
+            async move {
+                sqlx::query(
+                    r#"SELECT
+                          COUNT(*)                                            AS total_tasks,
+                          COUNT(*) FILTER (WHERE status = 'running')         AS running_tasks,
+                          COUNT(*) FILTER (WHERE status = 'failed')          AS failed_tasks,
+                          COUNT(*) FILTER (WHERE status = 'completed')       AS completed_tasks,
+                          COUNT(*) FILTER (WHERE status = 'pending')         AS pending_tasks
+                       FROM tasks"#,
+                )
+                .fetch_one(&pool)
+                .await
+            }
+        }).await?;
 
-        let metrics_row = sqlx::query(
-            r#"SELECT
-                  COALESCE(SUM(total_instructions)::BIGINT, 0) AS total_instructions,
-                  COALESCE(SUM(total_syscalls)::BIGINT, 0)     AS total_syscalls,
-                  COALESCE(SUM(total_runs)::BIGINT, 0)         AS total_runs,
-                  COALESCE(AVG(avg_duration_us)::BIGINT, 0)    AS avg_duration_us
-               FROM task_metrics"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let pool2 = self.pool.clone();
+        let metrics_row = with_retry(3, || {
+            let pool2 = pool2.clone();
+            async move {
+                sqlx::query(
+                    r#"SELECT
+                          COALESCE(SUM(total_instructions)::BIGINT, 0) AS total_instructions,
+                          COALESCE(SUM(total_syscalls)::BIGINT, 0)     AS total_syscalls,
+                          COALESCE(SUM(total_runs)::BIGINT, 0)         AS total_runs,
+                          COALESCE(AVG(avg_duration_us)::BIGINT, 0)    AS avg_duration_us
+                       FROM task_metrics"#,
+                )
+                .fetch_one(&pool2)
+                .await
+            }
+        }).await?;
 
         Ok(SystemStats {
             total_tasks:       row.get::<i64, _>("total_tasks") as usize,

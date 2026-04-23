@@ -105,6 +105,7 @@ pub async fn execute_advanced(
 /// Execute multiple WASM files in batch.
 /// Each file runs in its own spawn_blocking call so panics in the engine
 /// are isolated per-file and do not abort the batch.
+/// Files are executed concurrently (up to 4 at a time) for better throughput.
 #[post("/v2/execute/batch")]
 pub async fn execute_batch(
     req: web::Json<BatchExecutionRequest>,
@@ -112,30 +113,53 @@ pub async fn execute_batch(
     let paths = req.wasm_paths.clone();
     let continue_on_error = req.continue_on_error;
 
-    let results = web::block(move || {
-        let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
-        let mut successes = Vec::new();
-        let mut failures = Vec::new();
-        for path in &path_refs {
-            match ExecutionDispatcher::execute_file(path, None) {
-                Ok(r) => successes.push(r),
-                Err(e) => {
-                    failures.push((path.to_string(), e.clone()));
+    // Execute each file in its own blocking task for full isolation
+    let mut successes: Vec<crate::run_wasm::execution_framework::IntegratedExecutionResult> = Vec::new();
+    let mut failures: Vec<(String, String)> = Vec::new();
+
+    // Process files in chunks of 4 for bounded concurrency
+    let chunk_size = 4usize;
+    for chunk in paths.chunks(chunk_size) {
+        let handles: Vec<_> = chunk.iter().map(|path| {
+            let p = path.clone();
+            tokio::task::spawn_blocking(move || {
+                (p.clone(), ExecutionDispatcher::execute_file(&p, None))
+            })
+        }).collect();
+
+        for handle in handles {
+            match handle.await {
+                Ok((_path, Ok(result))) => successes.push(result),
+                Ok((path, Err(e))) => {
+                    failures.push((path, e.clone()));
                     if !continue_on_error {
-                        return Err(e);
+                        // Return immediately with partial results
+                        let batch_response = build_batch_response(&successes, &failures);
+                        return Ok(HttpResponse::Ok().json(batch_response));
+                    }
+                }
+                Err(e) => {
+                    // JoinError — the blocking task panicked
+                    let path = "(unknown)".to_string();
+                    failures.push((path, format!("Task panicked: {}", e)));
+                    if !continue_on_error {
+                        let batch_response = build_batch_response(&successes, &failures);
+                        return Ok(HttpResponse::Ok().json(batch_response));
                     }
                 }
             }
         }
-        Ok((successes, failures))
-    })
-    .await
-    .map_err(|e| crate::error::WasmOsError::ExecutionError(format!("Thread error: {e}")))?
-    .map_err(|e| crate::error::WasmOsError::ExecutionError(e))?;
+    }
 
-    let (successes, failures) = results;
+    let batch_response = build_batch_response(&successes, &failures);
+    Ok(HttpResponse::Ok().json(batch_response))
+}
 
-    let batch_response = serde_json::json!({
+fn build_batch_response(
+    successes: &[crate::run_wasm::execution_framework::IntegratedExecutionResult],
+    failures: &[(String, String)],
+) -> serde_json::Value {
+    serde_json::json!({
         "total_files": successes.len() + failures.len(),
         "successful": successes.len(),
         "failed": failures.len(),
@@ -150,9 +174,7 @@ pub async fn execute_batch(
         "errors": failures.iter().map(|(path, err)| {
             serde_json::json!({ "path": path, "error": err })
         }).collect::<Vec<_>>()
-    });
-
-    Ok(HttpResponse::Ok().json(batch_response))
+    })
 }
 
 /// JSON response shape for GET /v2/execution/{execution_id}/report.

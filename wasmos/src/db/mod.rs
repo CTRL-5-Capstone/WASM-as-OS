@@ -3,6 +3,49 @@ pub mod repository;
 #[cfg(test)]
 mod repository_test;
 
+/// Retry a fallible async DB operation up to `max_attempts` times with
+/// exponential backoff (50 ms, 100 ms, 200 ms, …).
+///
+/// Only retries on transient errors (lost connection, pool timeout).
+/// Non-transient errors (constraint violations, type errors) are returned
+/// immediately so callers don't wait on hopeless operations.
+pub async fn with_retry<F, Fut, T>(max_attempts: u32, mut op: F) -> Result<T, sqlx::Error>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, sqlx::Error>>,
+{
+    let mut last_err = None;
+    for attempt in 1..=max_attempts {
+        match op().await {
+            Ok(v) => return Ok(v),
+            Err(e) if is_transient(&e) => {
+                tracing::warn!(
+                    attempt,
+                    error = %e,
+                    "Transient DB error — retrying"
+                );
+                last_err = Some(e);
+                if attempt < max_attempts {
+                    let delay = std::time::Duration::from_millis(50u64 * (1u64 << (attempt - 1)));
+                    tokio::time::sleep(delay).await;
+                }
+            }
+            Err(e) => return Err(e), // non-transient — fail fast
+        }
+    }
+    Err(last_err.expect("loop ran at least once"))
+}
+
+/// Returns true for errors that are worth retrying (connection-level failures).
+fn is_transient(e: &sqlx::Error) -> bool {
+    matches!(
+        e,
+        sqlx::Error::PoolTimedOut
+            | sqlx::Error::PoolClosed
+            | sqlx::Error::Io(_)
+    )
+}
+
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::time::Duration;

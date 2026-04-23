@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod middleware;
 pub mod plugins;
 pub mod query_cache;
+pub mod redis_cache;
 pub mod scheduler;
 pub mod server;
 pub mod tracing_spans;

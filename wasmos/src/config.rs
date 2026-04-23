@@ -1,6 +1,19 @@
 use serde::Deserialize;
 use std::net::IpAddr;
 
+/// Mask the password in a postgres connection URL to prevent credential leakage in logs.
+fn mask_db_url(url: &str) -> String {
+    // Pattern: postgresql://user:PASSWORD@host/db → postgresql://user:****@host/db
+    if let Some(at_pos) = url.find('@') {
+        if let Some(colon_pos) = url[..at_pos].rfind(':') {
+            let prefix = &url[..colon_pos + 1];
+            let suffix = &url[at_pos..];
+            return format!("{}****{}", prefix, suffix);
+        }
+    }
+    url.to_string()
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub server: ServerConfig,
@@ -22,10 +35,18 @@ pub struct ServerConfig {
     pub cors_origins: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct DatabaseConfig {
     #[serde(default = "default_database_url")]
     pub url: String,
+}
+
+impl std::fmt::Debug for DatabaseConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Mask password in the URL to prevent credential leakage in logs.
+        let masked = mask_db_url(&self.url);
+        f.debug_struct("DatabaseConfig").field("url", &masked).finish()
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -169,24 +190,68 @@ impl Config {
 
         let cfg: Config = config.try_deserialize()?;
 
-        // Emit loud warnings for insecure defaults so they appear in every startup log.
-        if cfg.security.admin_key == "changeme" {
-            eprintln!(
-                "[SECURITY WARNING] WASMOS__SECURITY__ADMIN_KEY is set to the default \"changeme\". \
-                 Set it to a strong secret before deploying to production."
-            );
-        }
-        if cfg.security.jwt_secret.is_empty() || cfg.security.jwt_secret == "change-me-in-production-jwt-secret" {
-            eprintln!(
-                "[SECURITY WARNING] WASMOS__SECURITY__JWT_SECRET is not set or is insecure. \
-                 Set it to a long random secret before deploying to production."
-            );
-        }
-        if cfg.server.cors_origins.contains(&"*".to_string()) {
-            eprintln!(
-                "[SECURITY WARNING] WASMOS__SERVER__CORS_ORIGINS is \"*\" (allow all). \
-                 Restrict to specific origins in production."
-            );
+        // Detect production mode: WASMOS_ENV=production or RUST_ENV=production
+        let is_production = std::env::var("WASMOS_ENV")
+            .or_else(|_| std::env::var("RUST_ENV"))
+            .map(|v| v.eq_ignore_ascii_case("production"))
+            .unwrap_or(false);
+
+        let weak_jwt = cfg.security.jwt_secret.is_empty()
+            || cfg.security.jwt_secret == "change-me-in-production-jwt-secret"
+            || cfg.security.jwt_secret == "change-me-to-a-random-32-char-secret"
+            || cfg.security.jwt_secret.len() < 32;
+
+        let weak_admin = cfg.security.admin_key == "changeme"
+            || cfg.security.admin_key.is_empty();
+
+        if is_production {
+            // Hard fail in production — insecure defaults must not reach prod.
+            if weak_jwt {
+                return Err(config::ConfigError::Message(
+                    "WASMOS_ENV=production but WASMOS__SECURITY__JWT_SECRET is absent or \
+                     too short (min 32 chars). Set a strong random secret.".into(),
+                ));
+            }
+            if weak_admin {
+                return Err(config::ConfigError::Message(
+                    "WASMOS_ENV=production but WASMOS__SECURITY__ADMIN_KEY is absent or \
+                     set to the default 'changeme'. Set a strong random key.".into(),
+                ));
+            }
+            if !cfg.security.auth_enabled {
+                eprintln!(
+                    "[SECURITY WARNING] WASMOS_ENV=production but \
+                     WASMOS__SECURITY__AUTH_ENABLED=false. All API endpoints are UNPROTECTED. \
+                     Set WASMOS__SECURITY__AUTH_ENABLED=true in production."
+                );
+            }
+            if cfg.server.cors_origins.contains(&"*".to_string()) {
+                eprintln!(
+                    "[SECURITY WARNING] WASMOS_ENV=production but \
+                     WASMOS__SERVER__CORS_ORIGINS is \"*\" (allow all origins). \
+                     Restrict to specific origins in production."
+                );
+            }
+        } else {
+            // Dev/CI: emit loud warnings but allow startup so developers aren't blocked.
+            if weak_admin {
+                eprintln!(
+                    "[SECURITY WARNING] WASMOS__SECURITY__ADMIN_KEY is set to the default \
+                     \"changeme\". Set it to a strong secret before deploying to production."
+                );
+            }
+            if weak_jwt {
+                eprintln!(
+                    "[SECURITY WARNING] WASMOS__SECURITY__JWT_SECRET is not set or is insecure \
+                     (< 32 chars). Set it to a long random secret before deploying to production."
+                );
+            }
+            if cfg.server.cors_origins.contains(&"*".to_string()) {
+                eprintln!(
+                    "[SECURITY WARNING] WASMOS__SERVER__CORS_ORIGINS is \"*\" (allow all). \
+                     Restrict to specific origins in production."
+                );
+            }
         }
 
         Ok(cfg)

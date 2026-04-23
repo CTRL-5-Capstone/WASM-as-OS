@@ -368,7 +368,7 @@ impl Scheduler {
 
             let start = Instant::now();
             // Hard wall-clock timeout wrapping a blocking spawn
-            let exec_fut = tokio::task::spawn_blocking(move || execute_wasm_file(&task_path));
+            let exec_fut = tokio::task::spawn_blocking(move || execute_wasm_file(&task_path, None));
 
             // Watchdog: whichever fires first — slice expiry OR global timeout
             let slice_dur = tokio::time::Duration::from_millis(slice_ms);

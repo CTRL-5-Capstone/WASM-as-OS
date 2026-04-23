@@ -79,9 +79,25 @@ futures-util = "0.3"
 # In-memory cache with TTL and LRU eviction
 moka = { version = "0.12", features = ["future"] }
 
+# Redis L2 distributed cache (optional — app falls back to moka-only when REDIS_URL is unset)
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+
 # WAT (WebAssembly text format) -> WASM compiler
 wat = "1.0"
 
 [dev-dependencies]
 tempfile = "3.8"
 criterion = "0.5"
+
+[profile.release]
+# Maximum optimization — required for a production WASM interpreter where
+# hot-path instruction dispatch is extremely sensitive to codegen quality.
+opt-level = 3
+# Thin LTO: cross-crate inlining without the full compile-time cost of fat LTO.
+lto = "thin"
+# Single codegen unit allows LLVM to optimize across the entire crate.
+codegen-units = 1
+# Strip debug symbols from the release binary to reduce image size.
+strip = true
+# Keep panic = "unwind" (default) so catch_unwind in wasm_control.rs works correctly.
+panic = "unwind"

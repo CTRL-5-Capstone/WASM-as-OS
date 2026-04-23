@@ -5,6 +5,7 @@ mod error;
 mod metrics;
 mod middleware;
 mod query_cache;
+mod redis_cache;
 mod run_wasm;
 mod server;
 mod scheduler;
@@ -49,7 +50,7 @@ fn configure_static_files(cfg: &mut actix_web::web::ServiceConfig) {
 }
 use crate::config::Config;
 use crate::db::{connect_pg, repository::TaskRepository};
-use crate::middleware::{auth::JwtAuth, logging::RequestId, rate_limit::RateLimiter};
+use crate::middleware::{auth::JwtAuth, logging::RequestId, rate_limit::RateLimiter, security_headers::SecurityHeaders};
 use crate::server::AppState;
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
@@ -92,8 +93,21 @@ async fn main() -> std::io::Result<()> {
     // No additional migration call is needed here.
 
     // Ensure wasm_files directory exists at startup (upload_task also creates it,
-    // but doing it here avoids a race on first upload)
-    let wasm_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wasm_files");
+    // but doing it here avoids a race on first upload).
+    // Resolution order:
+    //   1. WASM_FILES_DIR environment variable (recommended for production)
+    //   2. ./wasm_files relative to the current working directory
+    //   3. <CARGO_MANIFEST_DIR>/wasm_files (compile-time fallback, dev only)
+    let wasm_dir = std::env::var("WASM_FILES_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let cwd_candidate = std::path::PathBuf::from("wasm_files");
+            if cwd_candidate.exists() {
+                cwd_candidate
+            } else {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wasm_files")
+            }
+        });
     if let Err(e) = tokio::fs::create_dir_all(&wasm_dir).await {
         tracing::warn!("Could not create wasm_files dir: {}", e);
     } else {
@@ -126,8 +140,8 @@ async fn main() -> std::io::Result<()> {
     // Initialize capability token registry
     let cap_registry = crate::capability::CapabilityRegistry::new();
 
-    // Initialize in-memory query result cache
-    let query_cache = crate::query_cache::QueryCache::new();
+    // Initialize two-level query cache (moka L1 + optional Redis L2)
+    let query_cache = crate::query_cache::QueryCache::new().await;
 
     // Initialize distributed trace store
     let trace_store = crate::tracing_spans::TraceStore::new();
@@ -245,6 +259,7 @@ async fn main() -> std::io::Result<()> {
             App::new()
                 .wrap(TracingLogger::default())
                 .wrap(RequestId)
+                .wrap(SecurityHeaders)
                 .wrap(RateLimiter::new(security_config.rate_limit_per_minute))
                 .wrap(JwtAuth::new(app_state.auth_service.clone()))
                 .wrap(cors)
@@ -314,6 +329,7 @@ async fn main() -> std::io::Result<()> {
                 .service(server::list_traces)
                 .service(server::get_task_traces)
                 .service(server::live_trace_metrics)
+                .service(server::seed_traces)
                 // API v1 - Execution History
                 .service(server::get_task_execution_history)
                 // API v2 - Advanced Execution

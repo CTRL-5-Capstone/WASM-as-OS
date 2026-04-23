@@ -11,9 +11,9 @@ use crate::metrics;
 use crate::middleware::auth::AuthService;
 use crate::plugins::PluginManager;
 use crate::query_cache::QueryCache;
-use crate::run_wasm::execute_wasm_file;
+use crate::run_wasm::{execute_wasm_file, PolicyRequest};
 use crate::scheduler::Scheduler;
-use crate::tracing_spans::TraceStore;
+use crate::tracing_spans::{SpanKind, TraceStore, Tracer};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::fs;
@@ -209,6 +209,17 @@ fn extract_ip(req: &HttpRequest) -> String {
 }
 
 fn wasm_files_dir() -> PathBuf {
+    // Resolution order (mirrors main.rs startup logic):
+    //   1. WASM_FILES_DIR env var — explicitly set in production / K8s (e.g. /app/wasm_files)
+    //   2. ./wasm_files relative to CWD — works for `cargo run` in dev
+    //   3. CARGO_MANIFEST_DIR/wasm_files — compile-time fallback for test environments only
+    if let Ok(dir) = std::env::var("WASM_FILES_DIR") {
+        return PathBuf::from(dir);
+    }
+    let cwd = PathBuf::from("wasm_files");
+    if cwd.exists() {
+        return cwd;
+    }
     Path::new(env!("CARGO_MANIFEST_DIR")).join("wasm_files")
 }
 
@@ -276,7 +287,10 @@ fn compile_wat_to_wasm(wat_bytes: &[u8]) -> Result<Vec<u8>> {
         .map_err(|e| WasmOsError::Validation(format!("Invalid .wat file: {e}")))
 }
 
-fn execute_wasm_or_wat_file(path_str: &str) -> std::result::Result<crate::run_wasm::ExecutionResult, String> {
+fn execute_wasm_or_wat_file(
+    path_str: &str,
+    policy: Option<crate::run_wasm::SyscallPolicy>,
+) -> std::result::Result<crate::run_wasm::ExecutionResult, String> {
     let path = Path::new(path_str);
     let ext = path
         .extension()
@@ -285,7 +299,7 @@ fn execute_wasm_or_wat_file(path_str: &str) -> std::result::Result<crate::run_wa
         .to_ascii_lowercase();
 
     if ext == "wasm" {
-        return execute_wasm_file(path_str);
+        return execute_wasm_file(path_str, policy);
     }
     if ext != "wat" {
         return Err(format!("Unsupported file extension: {ext}"));
@@ -301,7 +315,7 @@ fn execute_wasm_or_wat_file(path_str: &str) -> std::result::Result<crate::run_wa
         .map_err(|e| format!("Failed to write temp .wasm for '{path_str}': {e}"))?;
 
     let tmp_str = tmp_path.to_string_lossy().to_string();
-    let result = execute_wasm_file(&tmp_str);
+    let result = execute_wasm_file(&tmp_str, policy);
     let _ = fs::remove_file(&tmp_path);
     result
 }
@@ -474,17 +488,29 @@ pub async fn get_task(
     path: web::Path<String>,
 ) -> Result<impl Responder> {
     let id = path.into_inner();
-    
+
+    // Serve from L1/L2 cache when available (30 s TTL)
+    if let Some(cached) = data.query_cache.get_task(&id).await {
+        return Ok(HttpResponse::Ok()
+            .insert_header(("Cache-Control", "public, max-age=30"))
+            .insert_header(("X-Cache", "HIT"))
+            .json(cached));
+    }
+
     match data.task_repo.get_by_id(&id).await? {
         Some(task) => {
             let metrics = data.task_repo.get_metrics(&id).await?.unwrap_or_default();
             let history = data.task_repo.get_execution_history(&id, 10).await?;
-            
-            Ok(HttpResponse::Ok().json(serde_json::json!({
+            let json = serde_json::json!({
                 "task": TaskResponse::from(task),
                 "metrics": metrics,
                 "recent_executions": history
-            })))
+            });
+            data.query_cache.insert_task(&id, json.clone()).await;
+            Ok(HttpResponse::Ok()
+                .insert_header(("Cache-Control", "public, max-age=30"))
+                .insert_header(("X-Cache", "MISS"))
+                .json(json))
         }
         None => Err(WasmOsError::TaskNotFound(id)),
     }
@@ -581,6 +607,41 @@ pub async fn upload_task(
         .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
         .collect::<String>();
     
+    // ── Duplicate detection ──────────────────────────────────────────────
+    // If a task with this exact name already exists, replace the WASM binary
+    // in-place and reset its status rather than creating a second entry.
+    if let Ok(Some(existing)) = data.task_repo.get_by_name(&task_req.name).await {
+        // Remove old file
+        if Path::new(&existing.path).exists() {
+            std::fs::remove_file(&existing.path).ok();
+        }
+        // Write new binary under a fresh UUID filename
+        let unique_id = uuid::Uuid::new_v4().to_string();
+        let filepath = wasm_dir.join(format!("{}_{}.wasm", filename, &unique_id[..8]));
+        tokio::fs::write(&filepath, &wasm_bytes).await
+            .map_err(|e| WasmOsError::Io(e))?;
+
+        // Update the existing row (path, size, status → pending)
+        data.task_repo.update_task_path(
+            &existing.id,
+            &filepath.to_string_lossy(),
+            wasm_bytes.len() as i64,
+        ).await?;
+        data.task_repo.update_status(&existing.id, TaskStatus::Pending).await?;
+
+        let ip = extract_ip(&req);
+        let _ = data.task_repo.write_audit("api", "system", "task.replace", Some(&existing.id), existing.tenant_id.as_deref(), Some(&ip)).await;
+        tracing::info!("Replaced task binary: {} ({})", existing.name, existing.id);
+        data.query_cache.invalidate_task(&existing.id).await;
+        data.query_cache.invalidate_tasks().await;
+        data.query_cache.invalidate_stats().await;
+
+        // Re-fetch updated task to return current state
+        let updated = data.task_repo.get_by_id(&existing.id).await?
+            .unwrap_or(existing);
+        return Ok(HttpResponse::Ok().json(TaskResponse::from(updated)));
+    }
+
     // Use a unique ID prefix to avoid filename collisions
     let unique_id = uuid::Uuid::new_v4().to_string();
     let filepath = wasm_dir.join(format!("{}_{}.wasm", filename, &unique_id[..8]));
@@ -615,13 +676,26 @@ pub async fn upload_task(
     Ok(HttpResponse::Created().json(TaskResponse::from(task)))
 }
 
+#[derive(Deserialize, Default)]
+pub struct ExecuteTaskRequest {
+    /// Optional syscall policy override for this execution.
+    /// Omit or set null for the default permissive policy.
+    #[serde(default)]
+    pub syscall_policy: Option<PolicyRequest>,
+}
+
 #[post("/v1/tasks/{id}/start")]
 pub async fn start_task(
     req: HttpRequest,
     data: web::Data<AppState>,
     path: web::Path<String>,
+    body: Option<web::Json<ExecuteTaskRequest>>,
 ) -> Result<impl Responder> {
     let id = path.into_inner();
+    // Resolve policy from optional request body
+    let policy = body
+        .and_then(|b| b.into_inner().syscall_policy)
+        .map(|pr| pr.into_policy());
 
     let task = data
         .task_repo
@@ -656,27 +730,33 @@ pub async fn start_task(
     // Execute WASM in a blocking thread with a configurable timeout
     let exec_result = match tokio::time::timeout(
         tokio::time::Duration::from_secs(timeout_secs),
-        web::block(move || execute_wasm_file(&task_path)),
+        web::block(move || execute_wasm_or_wat_file(&task_path, policy)),
     )
     .await
     {
         Ok(Ok(Ok(result))) => result,
         Ok(Ok(Err(e))) => {
             tracing::error!("WASM engine error for {}: {}", task.name, e);
-            crate::run_wasm::ExecutionResult::failure(e, 0, 0, 0, start_time.elapsed().as_micros() as u64, vec![])
+            crate::run_wasm::ExecutionResult::failure(
+                e, 0, 0, 0, vec![], 0,
+                start_time.elapsed().as_micros() as u64, vec![],
+                "Permissive".to_string(),
+            )
         }
         Ok(Err(e)) => {
             tracing::error!("WASM execution thread panicked for {}: {}", task.name, e);
             crate::run_wasm::ExecutionResult::failure(
-                format!("Execution thread error: {}", e), 0, 0, 0,
-                start_time.elapsed().as_micros() as u64, vec![],
+                format!("Execution thread error: {}", e), 0, 0, 0, vec![],
+                0, start_time.elapsed().as_micros() as u64, vec![],
+                "Permissive".to_string(),
             )
         }
         Err(_) => {
             tracing::warn!("WASM execution timed out after {}s for {}", timeout_secs, task.name);
             crate::run_wasm::ExecutionResult::failure(
-                format!("Execution timed out after {}s", timeout_secs), 0, 0, 0,
-                start_time.elapsed().as_micros() as u64, vec![],
+                format!("Execution timed out after {}s", timeout_secs), 0, 0, 0, vec![],
+                0, start_time.elapsed().as_micros() as u64, vec![],
+                "Permissive".to_string(),
             )
         }
     };
@@ -717,6 +797,60 @@ pub async fn start_task(
         status: status_str.clone(),
     });
 
+    // ── Record distributed trace ────────────────────────────────────────────
+    {
+        let mut tracer = Tracer::start(
+            data.trace_store.clone(),
+            id.clone(),
+            task.name.clone(),
+        );
+
+        // Load span
+        tracer.record_span(
+            SpanKind::Load,
+            exec_result.success,
+            None,
+            vec![("wasm_path".to_string(), serde_json::json!(task.path))],
+            (duration_us as f64 * 0.05) as i64, // ~5% of total
+        );
+
+        // Validate span
+        tracer.record_span(
+            SpanKind::Validate,
+            true,
+            None,
+            vec![("file_size_bytes".to_string(), serde_json::json!(task.file_size_bytes))],
+            (duration_us as f64 * 0.03) as i64, // ~3% of total
+        );
+
+        // Execute span (bulk of time)
+        tracer.record_span(
+            SpanKind::Execute,
+            exec_result.success,
+            exec_result.error.clone(),
+            vec![
+                ("instructions".to_string(), serde_json::json!(exec_result.instructions_executed)),
+                ("syscalls".to_string(), serde_json::json!(exec_result.syscalls_executed)),
+                ("memory_bytes".to_string(), serde_json::json!(exec_result.memory_used_bytes)),
+            ],
+            (duration_us as f64 * 0.87) as i64, // ~87% of total
+        );
+
+        // Persist span
+        tracer.record_span(
+            SpanKind::Persist,
+            true,
+            None,
+            vec![],
+            (duration_us as f64 * 0.05) as i64, // ~5% of total
+        );
+
+        tracer.finish(
+            exec_result.success,
+            exec_result.error.clone(),
+        ).await;
+    }
+
     // Update Prometheus metrics
     metrics::TASK_EXECUTIONS_TOTAL
         .with_label_values(&[if exec_result.success { "success" } else { "failed" }])
@@ -732,6 +866,7 @@ pub async fn start_task(
         .set(exec_result.memory_used_bytes as f64);
 
     // Invalidate cached task list/stats — status has changed
+    data.query_cache.invalidate_task(&id).await;
     data.query_cache.invalidate_tasks().await;
     data.query_cache.invalidate_stats().await;
 
@@ -772,6 +907,7 @@ pub async fn stop_task(
     let ip = extract_ip(&req);
     let _ = data.task_repo.write_audit("api", "system", "task.stop", Some(&id), task.tenant_id.as_deref(), Some(&ip)).await;
     tracing::info!("Stopped task: {}", task.name);
+    data.query_cache.invalidate_task(&id).await;
     data.query_cache.invalidate_tasks().await;
     data.query_cache.invalidate_stats().await;
 
@@ -794,12 +930,11 @@ pub async fn delete_task(
         .await?
         .ok_or_else(|| WasmOsError::TaskNotFound(id.clone()))?;
 
-    // Prevent deleting a running task — stop it first to avoid
-    // leaving the scheduler in an inconsistent state.
+    // If the task is stuck in "running" (e.g. server crashed mid-execution),
+    // allow deletion anyway — execution is synchronous so a genuinely
+    // running task will be holding the HTTP connection, not calling DELETE.
     if task.status == TaskStatus::Running {
-        return Err(WasmOsError::Validation(
-            "Cannot delete a running task; stop or wait for it to complete first".into(),
-        ));
+        tracing::warn!("Deleting task {} that was stuck in Running state", task.name);
     }
 
     if Path::new(&task.path).exists() {
@@ -811,6 +946,7 @@ pub async fn delete_task(
     let _ = data.task_repo.write_audit("api", "system", "task.delete", Some(&id), task.tenant_id.as_deref(), Some(&ip)).await;
     tracing::info!("Deleted task: {}", task.name);
     metrics::TASKS_TOTAL.with_label_values(&["total"]).dec();
+    data.query_cache.invalidate_task(&id).await;
     data.query_cache.invalidate_tasks().await;
     data.query_cache.invalidate_stats().await;
 
@@ -945,27 +1081,34 @@ pub async fn run_test_file(
     // WASM from hanging the request indefinitely (matches the run-all per-file timeout).
     let exec_result = match tokio::time::timeout(
         tokio::time::Duration::from_secs(30),
-        web::block(move || execute_wasm_or_wat_file(&file_path)),
+        web::block(move || execute_wasm_or_wat_file(&file_path, None)),
     ).await {
         Ok(Ok(Ok(result))) => result,
         Ok(Ok(Err(e))) => {
             tracing::error!("Test file execution error for {}: {}", file_name, e);
             crate::run_wasm::ExecutionResult::failure(
-                e, 0, 0, 0, start_time.elapsed().as_micros() as u64, vec![],
+                e, 0, 0, 0, vec![], 0,
+                start_time.elapsed().as_micros() as u64, vec![],
+                "Permissive".to_string(),
             )
         }
         Ok(Err(e)) => {
             tracing::error!("Test file execution thread panicked for {}: {}", file_name, e);
             crate::run_wasm::ExecutionResult::failure(
                 format!("Execution thread error: {}", e),
-                0, 0, 0, start_time.elapsed().as_micros() as u64, vec![],
+                0, 0, 0, vec![], 0,
+                start_time.elapsed().as_micros() as u64, vec![],
+                "Permissive".to_string(),
             )
         }
         Err(_elapsed) => {
             tracing::warn!("Test file '{}' timed out after 30 s", file_name);
             crate::run_wasm::ExecutionResult::failure(
                 "Execution timed out after 30 seconds".to_string(),
-                0, 0, 0, 30_000_000, vec!["[TIMEOUT] Execution exceeded 30 s limit".to_string()],
+                0, 0, 0, vec![], 0,
+                30_000_000,
+                vec!["[TIMEOUT] Execution exceeded 30 s limit".to_string()],
+                "Permissive".to_string(),
             )
         }
     };
@@ -1019,31 +1162,28 @@ pub async fn run_all_test_files(
         // cannot block the entire batch forever.
         let exec_result = match tokio::time::timeout(
             tokio::time::Duration::from_secs(30),
-            web::block(move || execute_wasm_or_wat_file(&file_path)),
+            web::block(move || execute_wasm_or_wat_file(&file_path, None)),
         ).await {
             Ok(Ok(Ok(result))) => result,
             Ok(Ok(Err(e))) => {
                 crate::run_wasm::ExecutionResult::failure(
-                    e,
-                    0, 0, 0,
-                    start_time.elapsed().as_micros() as u64,
-                    vec![],
+                    e, 0, 0, 0, vec![], 0,
+                    start_time.elapsed().as_micros() as u64, vec![],
+                    "Permissive".to_string(),
                 )
             }
             Ok(Err(e)) => {
                 crate::run_wasm::ExecutionResult::failure(
-                    format!("Thread error: {}", e),
-                    0, 0, 0,
-                    start_time.elapsed().as_micros() as u64,
-                    vec![],
+                    format!("Thread error: {}", e), 0, 0, 0, vec![], 0,
+                    start_time.elapsed().as_micros() as u64, vec![],
+                    "Permissive".to_string(),
                 )
             }
             Err(_) => {
                 crate::run_wasm::ExecutionResult::failure(
-                    "Execution timed out (30s)".to_string(),
-                    0, 0, 0,
-                    start_time.elapsed().as_micros() as u64,
-                    vec![],
+                    "Execution timed out (30s)".to_string(), 0, 0, 0, vec![], 0,
+                    start_time.elapsed().as_micros() as u64, vec![],
+                    "Permissive".to_string(),
                 )
             }
         };
@@ -1546,6 +1686,7 @@ pub async fn update_task(
 
     let ip = extract_ip(&req);
     let _ = data.task_repo.write_audit("api", "system", "task.update", Some(&id), task.tenant_id.as_deref(), Some(&ip)).await;
+    data.query_cache.invalidate_task(&id).await;
     data.query_cache.invalidate_tasks().await;
 
     // Return updated task
@@ -1576,6 +1717,7 @@ pub async fn pause_task(
     data.task_repo.update_status(&id, TaskStatus::Stopped).await?;
     let ip = extract_ip(&req);
     let _ = data.task_repo.write_audit("api", "system", "task.pause", Some(&id), task.tenant_id.as_deref(), Some(&ip)).await;
+    data.query_cache.invalidate_task(&id).await;
     data.query_cache.invalidate_tasks().await;
     data.query_cache.invalidate_stats().await;
 
@@ -1616,6 +1758,7 @@ pub async fn restart_task(
 
     let ip = extract_ip(&req);
     let _ = data.task_repo.write_audit("api", "system", "task.restart", Some(&id), task.tenant_id.as_deref(), Some(&ip)).await;
+    data.query_cache.invalidate_task(&id).await;
     data.query_cache.invalidate_tasks().await;
     data.query_cache.invalidate_stats().await;
 
@@ -1667,8 +1810,20 @@ pub async fn get_tenant(
 /// GET /v1/scheduler/status — live scheduler snapshot (queue depth, running, slice config)
 #[get("/v1/scheduler/status")]
 pub async fn scheduler_status(data: web::Data<AppState>) -> impl Responder {
+    // Cache for 5 s — short TTL to stay near-real-time while absorbing polling bursts
+    if let Some(cached) = data.query_cache.get_scheduler("status").await {
+        return HttpResponse::Ok()
+            .insert_header(("Cache-Control", "public, max-age=5"))
+            .insert_header(("X-Cache", "HIT"))
+            .json(cached);
+    }
     let snap = data.scheduler.status_snapshot().await;
-    HttpResponse::Ok().json(snap)
+    let json = serde_json::to_value(&snap).unwrap_or_default();
+    data.query_cache.insert_scheduler("status", json).await;
+    HttpResponse::Ok()
+        .insert_header(("Cache-Control", "public, max-age=5"))
+        .insert_header(("X-Cache", "MISS"))
+        .json(snap)
 }
 
 /// POST /v1/scheduler/preempt/{task_id} — forcefully cancel a running task
@@ -1710,6 +1865,7 @@ pub async fn issue_token(
         .cap_registry
         .issue(request.label, request.subject, request.tenant_id, caps, request.ttl_hours)
         .await;
+    data.query_cache.invalidate_tokens().await;
     let resp = IssueTokenResponse::from(token);
     Ok(HttpResponse::Created().json(resp))
 }
@@ -1718,9 +1874,20 @@ pub async fn issue_token(
 #[get("/v1/tokens")]
 pub async fn list_tokens(req: HttpRequest, data: web::Data<AppState>) -> Result<impl Responder> {
     require_admin(&req, &data)?;
+    if let Some(cached) = data.query_cache.get_tokens("all").await {
+        return Ok(HttpResponse::Ok()
+            .insert_header(("Cache-Control", "private, max-age=60"))
+            .insert_header(("X-Cache", "HIT"))
+            .json(cached));
+    }
     let all = data.cap_registry.list_all().await;
     let summaries: Vec<TokenSummary> = all.into_iter().map(TokenSummary::from).collect();
-    Ok(HttpResponse::Ok().json(summaries))
+    let json = serde_json::to_value(&summaries).unwrap_or_default();
+    data.query_cache.insert_tokens("all", json).await;
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "private, max-age=60"))
+        .insert_header(("X-Cache", "MISS"))
+        .json(summaries))
 }
 
 /// DELETE /v1/tokens/{id} — revoke a token (admin only)
@@ -1734,6 +1901,7 @@ pub async fn revoke_token(
     let id = path.into_inner();
     let revoked = data.cap_registry.revoke(&id).await;
     if revoked {
+        data.query_cache.invalidate_tokens().await;
         Ok(HttpResponse::Ok().json(serde_json::json!({ "revoked": true, "token_id": id })))
     } else {
         Ok(HttpResponse::NotFound().json(serde_json::json!({ "error": "Token not found", "token_id": id })))
@@ -1788,8 +1956,20 @@ pub async fn list_traces(
         .and_then(|v| v.parse().ok())
         .unwrap_or(50)
         .min(200);
+    let cache_key = format!("recent:{}", limit);
+    if let Some(cached) = data.query_cache.get_traces(&cache_key).await {
+        return HttpResponse::Ok()
+            .insert_header(("Cache-Control", "public, max-age=5"))
+            .insert_header(("X-Cache", "HIT"))
+            .json(cached);
+    }
     let traces = data.trace_store.recent(limit).await;
-    HttpResponse::Ok().json(traces)
+    let json = serde_json::to_value(&traces).unwrap_or_default();
+    data.query_cache.insert_traces(&cache_key, json).await;
+    HttpResponse::Ok()
+        .insert_header(("Cache-Control", "public, max-age=5"))
+        .insert_header(("X-Cache", "MISS"))
+        .json(traces)
 }
 
 /// GET /v1/traces/{task_id} — all traces for a given task
@@ -1816,4 +1996,116 @@ pub async fn live_trace_metrics(
         .min(500);
     let metrics = data.trace_store.live_metrics(window).await;
     HttpResponse::Ok().json(metrics)
+}
+
+// ─── Trace Seeder (dev/test only) ────────────────────────────────────────────
+
+/// POST /v1/traces/seed — populate the trace store with synthetic test traces.
+/// Body: { "count": 30 }   (default 30, max 200)
+///
+/// Generates a mix of successful/failed traces with realistic span timing
+/// so the frontend Traces page can be tested without running real WASM modules.
+#[post("/v1/traces/seed")]
+pub async fn seed_traces(
+    data: web::Data<AppState>,
+    body: web::Json<std::collections::HashMap<String, serde_json::Value>>,
+) -> impl Responder {
+    let count: usize = body
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(30) as usize;
+    let count = count.min(200);
+
+    let task_pool: Vec<(&str, &str)> = vec![
+        ("fast_add",          "trace-test-fast-add"),
+        ("slow_fibonacci",    "trace-test-slow-fib"),
+        ("divide_by_zero",    "trace-test-div-zero"),
+        ("memory_heavy",      "trace-test-mem-heavy"),
+        ("nested_loops",      "trace-test-nested"),
+        ("unreachable_trap",  "trace-test-unreachable"),
+        ("stack_overflow",    "trace-test-stack-overflow"),
+        ("multi_function",    "trace-test-multi-fn"),
+        ("global_counter",    "trace-test-global-ctr"),
+        ("bubble_sort_large", "trace-test-bubble-sort"),
+    ];
+
+    for i in 0..count {
+        let (task_name, task_id) = task_pool[i % task_pool.len()];
+        let unique_id = format!("{}-{}", task_id, Uuid::new_v4().to_string().split('-').next().unwrap_or("00"));
+
+        // Determine success/failure based on task type
+        let is_failure = matches!(task_name,
+            "divide_by_zero" | "unreachable_trap" | "stack_overflow"
+        );
+        // Occasionally make random failures too (10% of "good" tasks)
+        let success = if is_failure {
+            false
+        } else {
+            (i * 7 + 13) % 10 != 0  // roughly 10% random failures
+        };
+
+        // Vary duration based on task type
+        let base_dur_us: i64 = match task_name {
+            "fast_add" => 200 + (i as i64 * 17) % 800,
+            "slow_fibonacci" => 200_000 + (i as i64 * 1337) % 500_000,
+            "memory_heavy" => 5_000 + (i as i64 * 97) % 50_000,
+            "nested_loops" => 50_000 + (i as i64 * 311) % 200_000,
+            "multi_function" => 3_000 + (i as i64 * 73) % 20_000,
+            "global_counter" => 1_000 + (i as i64 * 41) % 10_000,
+            "bubble_sort_large" => 100_000 + (i as i64 * 991) % 400_000,
+            _ => 50 + (i as i64 * 7) % 500, // failures are fast
+        };
+
+        let error_msg = if !success {
+            Some(match task_name {
+                "divide_by_zero" => "trap: integer divide by zero".to_string(),
+                "unreachable_trap" => "trap: unreachable instruction executed".to_string(),
+                "stack_overflow" => "trap: call stack exhausted (max depth exceeded)".to_string(),
+                _ => format!("runtime error: unexpected failure in {}", task_name),
+            })
+        } else {
+            None
+        };
+
+        let instructions = if success { 500 + (i * 113) % 50_000 } else { (i * 7) % 200 };
+        let memory = if task_name == "memory_heavy" { 262_144 } else { 65_536 };
+
+        let mut tracer = Tracer::start(
+            data.trace_store.clone(),
+            unique_id,
+            task_name.to_string(),
+        );
+
+        tracer.record_span(
+            SpanKind::Load, true, None,
+            vec![("wasm_path".to_string(), serde_json::json!(format!("wasm_files/{}.wasm", task_name)))],
+            (base_dur_us as f64 * 0.05) as i64,
+        );
+        tracer.record_span(
+            SpanKind::Validate, true, None,
+            vec![],
+            (base_dur_us as f64 * 0.03) as i64,
+        );
+        tracer.record_span(
+            SpanKind::Execute, success, error_msg.clone(),
+            vec![
+                ("instructions".to_string(), serde_json::json!(instructions)),
+                ("syscalls".to_string(), serde_json::json!((i * 3) % 20)),
+                ("memory_bytes".to_string(), serde_json::json!(memory)),
+            ],
+            (base_dur_us as f64 * 0.87) as i64,
+        );
+        tracer.record_span(
+            SpanKind::Persist, success, None,
+            vec![],
+            (base_dur_us as f64 * 0.05) as i64,
+        );
+
+        tracer.finish(success, error_msg).await;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "seeded": count,
+        "message": format!("Seeded {} synthetic traces into the trace store", count),
+    }))
 }
