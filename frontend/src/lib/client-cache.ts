@@ -120,3 +120,175 @@ export async function withSWR<T>(
   cacheSet(key, data, ttlMs);
   return data;
 }
+
+// ─── In-source tests (vitest) ────────────────────────────────────────────────
+// Stripped from production via `define: { 'import.meta.vitest': 'undefined' }`.
+// Run with: npm test
+if (import.meta.vitest) {
+  const { describe, it, expect, beforeEach, afterEach, vi } = import.meta.vitest;
+ 
+  beforeEach(() => {
+    clearAll();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-27T12:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+ 
+  describe('cacheSet / cacheGet basics', () => {
+    it('returns null on a miss', () => {
+      expect(cacheGet('/v1/tasks')).toBeNull();
+    });
+ 
+    it('returns the stored value as fresh immediately after writing', () => {
+      cacheSet('/v1/tasks', [{ id: 'a' }]);
+      const hit = cacheGet<{ id: string }[]>('/v1/tasks');
+      expect(hit).not.toBeNull();
+      expect(hit!.data).toEqual([{ id: 'a' }]);
+      expect(hit!.stale).toBe(false);
+    });
+ 
+    it('uses the path-specific TTL (15s for /v1/tasks)', () => {
+      cacheSet('/v1/tasks', 'x');
+      vi.advanceTimersByTime(14_000);
+      expect(cacheGet('/v1/tasks')!.stale).toBe(false);
+      vi.advanceTimersByTime(2_000);
+      expect(cacheGet('/v1/tasks')!.stale).toBe(true);
+    });
+ 
+    it('uses the fallback TTL (15s) for unknown paths', () => {
+      cacheSet('/v1/unknown', 'x');
+      vi.advanceTimersByTime(14_000);
+      expect(cacheGet('/v1/unknown')!.stale).toBe(false);
+      vi.advanceTimersByTime(2_000);
+      expect(cacheGet('/v1/unknown')!.stale).toBe(true);
+    });
+ 
+    it('honours an explicit ttlMs override', () => {
+      cacheSet('/v1/tasks', 'x', 1_000);
+      vi.advanceTimersByTime(900);
+      expect(cacheGet('/v1/tasks')!.stale).toBe(false);
+      vi.advanceTimersByTime(200);
+      expect(cacheGet('/v1/tasks')!.stale).toBe(true);
+    });
+ 
+    it('treats values older than 2× TTL as evicted (returns null)', () => {
+      cacheSet('/v1/tasks', 'x');
+      vi.advanceTimersByTime(31_000);
+      expect(cacheGet('/v1/tasks')).toBeNull();
+    });
+ 
+    it('uses the shorter 5s TTL for /v1/traces', () => {
+      cacheSet('/v1/traces', 'x');
+      vi.advanceTimersByTime(4_000);
+      expect(cacheGet('/v1/traces')!.stale).toBe(false);
+      vi.advanceTimersByTime(2_000);
+      expect(cacheGet('/v1/traces')!.stale).toBe(true);
+    });
+  });
+ 
+  describe('invalidate()', () => {
+    it('removes only entries whose keys match the prefix', () => {
+      cacheSet('/v1/tasks', 'a');
+      cacheSet('/v1/tasks/abc', 'b');
+      cacheSet('/v1/stats', 'c');
+ 
+      invalidate('/v1/tasks');
+ 
+      expect(cacheGet('/v1/tasks')).toBeNull();
+      expect(cacheGet('/v1/tasks/abc')).toBeNull();
+      expect(cacheGet('/v1/stats')!.data).toBe('c');
+    });
+ 
+    it('is a no-op when no keys match', () => {
+      cacheSet('/v1/stats', 'c');
+      invalidate('/nothing-here');
+      expect(cacheGet('/v1/stats')!.data).toBe('c');
+    });
+  });
+ 
+  describe('clearAll()', () => {
+    it('drops every entry', () => {
+      cacheSet('/a', 1);
+      cacheSet('/b', 2);
+      clearAll();
+      expect(cacheGet('/a')).toBeNull();
+      expect(cacheGet('/b')).toBeNull();
+    });
+  });
+ 
+  describe('withSWR()', () => {
+    it('runs the fetcher and caches the result on a cold miss', async () => {
+      const fetcher = vi.fn().mockResolvedValue({ ok: true });
+      const result = await withSWR('/v1/tasks', fetcher);
+ 
+      expect(result).toEqual({ ok: true });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(cacheGet('/v1/tasks')!.data).toEqual({ ok: true });
+    });
+ 
+    it('serves cached data without re-fetching while fresh', async () => {
+      cacheSet('/v1/tasks', { cached: true });
+      const fetcher = vi.fn().mockResolvedValue({ cached: false });
+ 
+      const result = await withSWR('/v1/tasks', fetcher);
+ 
+      expect(result).toEqual({ cached: true });
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+ 
+    it('returns stale data immediately and revalidates in the background', async () => {
+      cacheSet('/v1/tasks', { v: 1 });
+      vi.advanceTimersByTime(20_000);
+      expect(cacheGet('/v1/tasks')!.stale).toBe(true);
+ 
+      let resolve!: (val: { v: number }) => void;
+      const fetcher = vi.fn(
+        () => new Promise<{ v: number }>((r) => { resolve = r; }),
+      );
+ 
+      const immediate = await withSWR('/v1/tasks', fetcher);
+ 
+      expect(immediate).toEqual({ v: 1 });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+ 
+      resolve({ v: 2 });
+      await vi.waitFor(() => {
+        expect(cacheGet('/v1/tasks')!.data).toEqual({ v: 2 });
+      });
+    });
+ 
+    it('deduplicates concurrent background revalidations for the same key', async () => {
+      cacheSet('/v1/tasks', { v: 1 });
+      vi.advanceTimersByTime(20_000);
+ 
+      const fetcher = vi.fn().mockResolvedValue({ v: 2 });
+      await withSWR('/v1/tasks', fetcher);
+      await withSWR('/v1/tasks', fetcher);
+ 
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+ 
+    it('swallows background errors silently (caller still gets stale data)', async () => {
+      cacheSet('/v1/tasks', { v: 1 });
+      vi.advanceTimersByTime(20_000);
+ 
+      const fetcher = vi.fn().mockRejectedValue(new Error('boom'));
+      const result = await withSWR('/v1/tasks', fetcher);
+      expect(result).toEqual({ v: 1 });
+      await vi.waitFor(() => {
+        expect(fetcher).toHaveBeenCalled();
+      });
+    });
+ 
+    it('blocks on the fetcher when fully expired (past 2× TTL)', async () => {
+      cacheSet('/v1/tasks', { v: 1 });
+      vi.advanceTimersByTime(31_000);
+ 
+      const fetcher = vi.fn().mockResolvedValue({ v: 99 });
+      const result = await withSWR('/v1/tasks', fetcher);
+ 
+      expect(result).toEqual({ v: 99 });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+  });
+}

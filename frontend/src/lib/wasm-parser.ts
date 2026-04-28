@@ -1173,3 +1173,229 @@ export function matchYaraRules(rules: YaraRule[], bytes: Uint8Array): YaraMatch[
 
   return results;
 }
+
+
+// ─── In-source tests (vitest) ────────────────────────────────────────────────
+// Stripped from production via `define: { 'import.meta.vitest': 'undefined' }`.
+// Run with: npm test
+if (import.meta.vitest) {
+  const { describe, it, expect } = import.meta.vitest;
+ 
+  // Real fixture: byte-for-byte copy of WasmOSTest/A.wasm — a minimal module
+  // that imports `my_namespace.imported_func` and exports `exported_func`.
+  // Embedded inline so tests are self-contained (no fs in jsdom).
+  const A_WASM = new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x08, 0x02, 0x60, 0x01, 0x7f, 0x00, 0x60, 0x00, 0x00,
+    0x02, 0x1e, 0x01, 0x0c, 0x6d, 0x79, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x73,
+    0x70, 0x61, 0x63, 0x65, 0x0d, 0x69, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x65,
+    0x64, 0x5f, 0x66, 0x75, 0x6e, 0x63, 0x00, 0x00,
+    0x03, 0x02, 0x01, 0x01,
+    0x07, 0x11, 0x01, 0x0d, 0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x65, 0x64,
+    0x5f, 0x66, 0x75, 0x6e, 0x63, 0x00, 0x01,
+    0x0a, 0x08, 0x01, 0x06, 0x00, 0x41, 0x2a, 0x10, 0x00, 0x0b,
+  ]);
+ 
+  const makeHeaderOnly = () => new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  ]);
+ 
+  describe('parseWasm() — rejection paths', () => {
+    it('rejects an empty buffer as too small', () => {
+      const r = parseWasm(new ArrayBuffer(0));
+      expect(r.valid).toBe(false);
+      expect(r.error).toMatch(/too small/i);
+      expect(r.fileSizeBytes).toBe(0);
+    });
+ 
+    it('rejects a buffer shorter than 8 bytes', () => {
+      const r = parseWasm(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01]).buffer);
+      expect(r.valid).toBe(false);
+      expect(r.error).toMatch(/too small/i);
+    });
+ 
+    it('rejects a buffer with a wrong magic number', () => {
+      const bad = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01, 0x00, 0x00, 0x00]);
+      const r = parseWasm(bad.buffer);
+      expect(r.valid).toBe(false);
+      expect(r.error).toMatch(/magic/i);
+    });
+ 
+    it('reports fileSizeBytes even when invalid', () => {
+      const bad = new Uint8Array(20);
+      bad.set([0xde, 0xad, 0xbe, 0xef]);
+      const r = parseWasm(bad.buffer);
+      expect(r.valid).toBe(false);
+      expect(r.fileSizeBytes).toBe(20);
+    });
+  });
+ 
+  describe('parseWasm() — header-only module', () => {
+    it('accepts the magic number and reads the version', () => {
+      const r = parseWasm(makeHeaderOnly().buffer);
+      expect(r.valid).toBe(true);
+      expect(r.version).toBe(1);
+      expect(r.sections).toEqual([]);
+      expect(r.imports).toEqual([]);
+      expect(r.exports).toEqual([]);
+    });
+  });
+ 
+  describe('parseWasm() — real fixture (A.wasm)', () => {
+    const result = parseWasm(A_WASM.buffer);
+ 
+    it('marks the module valid and reports file size', () => {
+      expect(result.valid).toBe(true);
+      expect(result.fileSizeBytes).toBe(83);
+      expect(result.version).toBe(1);
+    });
+ 
+    it('discovers all five real sections (type, import, function, export, code)', () => {
+      const ids = result.sections.map((s) => s.id).sort((a, b) => a - b);
+      expect(ids).toEqual([1, 2, 3, 7, 10]);
+    });
+ 
+    it('names sections from SECTION_NAMES', () => {
+      const names = result.sections.map((s) => s.name);
+      expect(names).toContain('Type');
+      expect(names).toContain('Import');
+      expect(names).toContain('Function');
+      expect(names).toContain('Export');
+      expect(names).toContain('Code');
+    });
+ 
+    it('parses the single import as my_namespace.imported_func / func', () => {
+      expect(result.imports).toHaveLength(1);
+      expect(result.imports[0]).toMatchObject({
+        module: 'my_namespace',
+        name: 'imported_func',
+        kind: 0,
+        kindName: 'func',
+      });
+    });
+ 
+    it('parses the single export as exported_func / func', () => {
+      expect(result.exports).toHaveLength(1);
+      expect(result.exports[0]).toMatchObject({
+        name: 'exported_func',
+        kind: 0,
+        kindName: 'func',
+      });
+    });
+ 
+    it('reports functionCount = 1 from the function section', () => {
+      expect(result.functionCount).toBe(1);
+    });
+ 
+    it('reports zero counts for sections that are absent', () => {
+      expect(result.memoryCount).toBe(0);
+      expect(result.globalCount).toBe(0);
+      expect(result.dataSegments).toBe(0);
+    });
+  });
+ 
+  describe('SECTION_NAMES / IMPORT_KIND_NAMES exports', () => {
+    it('maps section IDs to canonical names', () => {
+      expect(SECTION_NAMES[0]).toBe('Custom');
+      expect(SECTION_NAMES[10]).toBe('Code');
+      expect(SECTION_NAMES[12]).toBe('Data Count');
+    });
+ 
+    it('maps import kinds 0..3', () => {
+      expect(IMPORT_KIND_NAMES[0]).toBe('func');
+      expect(IMPORT_KIND_NAMES[1]).toBe('table');
+      expect(IMPORT_KIND_NAMES[2]).toBe('memory');
+      expect(IMPORT_KIND_NAMES[3]).toBe('global');
+    });
+  });
+ 
+  describe('analyseWasm() — security analysis', () => {
+    it('returns grade A and zero score for an invalid module (no analysis)', () => {
+      const invalid = parseWasm(new ArrayBuffer(0));
+      const r = analyseWasm(invalid);
+      expect(r.grade).toBe('A');
+      expect(r.riskScore).toBe(0);
+      expect(r.findings).toEqual([]);
+    });
+ 
+    it('returns a clean grade A on the small A.wasm fixture', () => {
+      const r = analyseWasm(parseWasm(A_WASM.buffer));
+      expect(r.grade).toBe('A');
+      expect(r.riskScore).toBeLessThanOrEqual(15);
+    });
+ 
+    it('flags a debug "name" custom section as info-level', () => {
+      const parsed = parseWasm(A_WASM.buffer);
+      parsed.customSections = ['name'];
+      const r = analyseWasm(parsed);
+      expect(r.findings.some((f) => f.id === 'debug_names')).toBe(true);
+    });
+ 
+    it('flags high global counts as a medium-severity complexity finding', () => {
+      const parsed = parseWasm(A_WASM.buffer);
+      parsed.globalCount = 50;
+      const r = analyseWasm(parsed);
+      const finding = r.findings.find((f) => f.id === 'many_globals');
+      expect(finding).toBeDefined();
+      expect(finding!.level).toBe('medium');
+    });
+ 
+    it('caps the risk score at 100', () => {
+      const parsed = parseWasm(A_WASM.buffer);
+      parsed.globalCount = 9999;
+      parsed.functionCount = 9999;
+      parsed.customSections = ['name'];
+      const r = analyseWasm(parsed);
+      expect(r.riskScore).toBeLessThanOrEqual(100);
+    });
+ 
+    it('sorts findings critical → high → medium → info', () => {
+      const parsed = parseWasm(A_WASM.buffer);
+      parsed.globalCount = 50;
+      parsed.functionCount = 200;
+      parsed.customSections = ['name'];
+      const r = analyseWasm(parsed);
+      const order = ['critical', 'high', 'medium', 'info'];
+      for (let i = 1; i < r.findings.length; i++) {
+        expect(order.indexOf(r.findings[i - 1].level))
+          .toBeLessThanOrEqual(order.indexOf(r.findings[i].level));
+      }
+    });
+  });
+ 
+  describe('hexDump()', () => {
+    it('emits 16 bytes per row in lowercase hex', () => {
+      const bytes = new Uint8Array(16).fill(0xab);
+      const out = hexDump(bytes);
+      expect(out).toContain('ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab');
+    });
+ 
+    it('honours maxBytes (default 256) and appends a truncation marker', () => {
+      const bytes = new Uint8Array(1024);
+      const out = hexDump(bytes);
+      expect(out.split('\n')).toHaveLength(17);
+      expect(out).toMatch(/\.\.\. \(768 more bytes\)/);
+    });
+ 
+    it('respects an explicit maxBytes (with truncation marker)', () => {
+      const bytes = new Uint8Array(1024);
+      const out = hexDump(bytes, 32);
+      expect(out.split('\n')).toHaveLength(3);
+      expect(out).toMatch(/\.\.\. \(992 more bytes\)/);
+    });
+ 
+    it('omits the truncation marker when bytes.length <= maxBytes', () => {
+      const bytes = new Uint8Array(16);
+      const out = hexDump(bytes);
+      expect(out.split('\n')).toHaveLength(1);
+      expect(out).not.toMatch(/more bytes/);
+    });
+ 
+    it('renders printable bytes as ASCII and others as dots', () => {
+      const bytes = new Uint8Array([0x41, 0x42, 0x43, 0x00, 0x01]);
+      const out = hexDump(bytes);
+      expect(out).toContain('ABC');
+      expect(out).toContain('..');
+    });
+  });
+}
