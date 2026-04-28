@@ -186,3 +186,246 @@ where
         })
     }
 }
+
+// ─── In-source tests ─────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::test as awtest;
+    use actix_web::{web, App, HttpResponse};
+    use serde_json::Value;
+ 
+    fn make_service(secret: &str, hours: i64, enabled: bool) -> Arc<AuthService> {
+        Arc::new(AuthService::new(secret.into(), hours, enabled))
+    }
+ 
+    // ─── AuthService — JWT round-trip (default jwt-auth feature) ────────────
+ 
+    #[cfg(feature = "jwt-auth")]
+    #[test]
+    fn generate_then_validate_round_trips_claims() {
+        let svc = make_service("super-secret-test-key", 1, true);
+        let token = svc.generate_token("user-42", "admin").expect("token signs");
+        let claims: Claims = svc.validate_token(&token).expect("token validates");
+ 
+        assert_eq!(claims.sub, "user-42");
+        assert_eq!(claims.role, "admin");
+        assert!(claims.exp > claims.iat, "exp must be after iat");
+        assert_eq!(claims.exp - claims.iat, 3600, "1-hour expiry → 3600 seconds");
+    }
+ 
+    #[cfg(feature = "jwt-auth")]
+    #[test]
+    fn validate_token_rejects_tampered_signature() {
+        let svc = make_service("super-secret-test-key", 1, true);
+        let token = svc.generate_token("u", "admin").expect("signs");
+ 
+        let mut bad = token.clone();
+        let last = bad.pop().unwrap();
+        bad.push(if last == 'a' { 'b' } else { 'a' });
+ 
+        assert!(svc.validate_token(&bad).is_err());
+    }
+ 
+    #[cfg(feature = "jwt-auth")]
+    #[test]
+    fn validate_token_rejects_token_signed_with_a_different_secret() {
+        let svc_a = make_service("secret-A", 1, true);
+        let svc_b = make_service("secret-B", 1, true);
+ 
+        let token = svc_a.generate_token("u", "admin").expect("signs");
+        assert!(svc_b.validate_token(&token).is_err(),
+            "a token signed with secret-A must not validate under secret-B");
+    }
+ 
+    #[cfg(feature = "jwt-auth")]
+    #[test]
+    fn validate_token_rejects_garbage_input() {
+        let svc = make_service("secret", 1, true);
+        assert!(svc.validate_token("not-a-jwt").is_err());
+        assert!(svc.validate_token("").is_err());
+    }
+ 
+    // ─── JwtAuth middleware tests ───────────────────────────────────────────
+ 
+    async fn protected_handler(req: actix_web::HttpRequest) -> HttpResponse {
+        use actix_web::HttpMessage;
+        let role = req
+            .extensions()
+            .get::<Claims>()
+            .map(|c| c.role.clone())
+            .unwrap_or_default();
+        HttpResponse::Ok().json(serde_json::json!({ "role": role }))
+    }
+ 
+    async fn ok_handler() -> HttpResponse {
+        HttpResponse::Ok().json(serde_json::json!({ "status": "ok" }))
+    }
+ 
+    #[actix_web::test]
+    async fn middleware_passes_through_when_disabled() {
+        let svc = make_service("secret", 1, /*enabled=*/ false);
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc))
+                .route("/protected", web::get().to(protected_handler)),
+        ).await;
+ 
+        let req = awtest::TestRequest::get().uri("/protected").to_request();
+        let resp = awtest::call_service(&app, req).await;
+        assert!(resp.status().is_success(),
+            "with auth disabled, protected routes should return 200; got {}",
+            resp.status());
+    }
+ 
+    #[actix_web::test]
+    async fn middleware_exempts_health_endpoints() {
+        let svc = make_service("secret", 1, true);
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc))
+                .route("/health/live", web::get().to(ok_handler))
+                .route("/health/ready", web::get().to(ok_handler)),
+        ).await;
+ 
+        for path in ["/health/live", "/health/ready"] {
+            let req = awtest::TestRequest::get().uri(path).to_request();
+            let resp = awtest::call_service(&app, req).await;
+            assert!(resp.status().is_success(),
+                "{path} must be exempt from JWT — got {}", resp.status());
+        }
+    }
+ 
+    #[actix_web::test]
+    async fn middleware_exempts_metrics() {
+        let svc = make_service("secret", 1, true);
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc))
+                .route("/metrics", web::get().to(ok_handler)),
+        ).await;
+ 
+        let req = awtest::TestRequest::get().uri("/metrics").to_request();
+        let resp = awtest::call_service(&app, req).await;
+        assert!(resp.status().is_success(),
+            "Prometheus scrape must not require a token");
+    }
+ 
+    #[actix_web::test]
+    async fn middleware_exempts_websocket_paths() {
+        // Browsers can't set Authorization headers on WebSocket upgrades.
+        let svc = make_service("secret", 1, true);
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc))
+                .route("/ws", web::get().to(ok_handler))
+                .route("/ws/events", web::get().to(ok_handler)),
+        ).await;
+ 
+        for path in ["/ws", "/ws/events"] {
+            let req = awtest::TestRequest::get().uri(path).to_request();
+            let resp = awtest::call_service(&app, req).await;
+            assert!(resp.status().is_success(),
+                "{path} must be exempt for WebSocket compatibility");
+        }
+    }
+ 
+    #[actix_web::test]
+    async fn middleware_exempts_auth_bootstrap_endpoint() {
+        // /v1/auth/token IS the bootstrap — requiring a token would deadlock.
+        let svc = make_service("secret", 1, true);
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc))
+                .route("/v1/auth/token", web::post().to(ok_handler)),
+        ).await;
+ 
+        let req = awtest::TestRequest::post().uri("/v1/auth/token").to_request();
+        let resp = awtest::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "/v1/auth/token must be exempt");
+    }
+ 
+    #[actix_web::test]
+    async fn middleware_returns_401_when_authorization_header_missing() {
+        let svc = make_service("secret", 1, true);
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc))
+                .route("/protected", web::get().to(protected_handler)),
+        ).await;
+ 
+        let req = awtest::TestRequest::get().uri("/protected").to_request();
+        let resp = awtest::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+ 
+        let body: Value = awtest::read_body_json(resp).await;
+        assert_eq!(body["status"], 401);
+        assert!(body["error"].as_str().unwrap_or("").to_lowercase().contains("missing"));
+    }
+ 
+    #[actix_web::test]
+    async fn middleware_returns_401_on_invalid_bearer_token() {
+        let svc = make_service("secret", 1, true);
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc))
+                .route("/protected", web::get().to(protected_handler)),
+        ).await;
+ 
+        let req = awtest::TestRequest::get()
+            .uri("/protected")
+            .insert_header(("Authorization", "Bearer not-a-real-jwt"))
+            .to_request();
+ 
+        let resp = awtest::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+ 
+        let body: Value = awtest::read_body_json(resp).await;
+        assert_eq!(body["status"], 401);
+    }
+ 
+    #[cfg(feature = "jwt-auth")]
+    #[actix_web::test]
+    async fn middleware_returns_401_when_header_lacks_bearer_prefix() {
+        let svc = make_service("secret", 1, true);
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc.clone()))
+                .route("/protected", web::get().to(protected_handler)),
+        ).await;
+ 
+        let token = svc.generate_token("u", "admin").unwrap();
+ 
+        let req = awtest::TestRequest::get()
+            .uri("/protected")
+            .insert_header(("Authorization", token.as_str()))
+            .to_request();
+ 
+        let resp = awtest::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401, "Authorization without Bearer prefix → 401");
+    }
+ 
+    #[cfg(feature = "jwt-auth")]
+    #[actix_web::test]
+    async fn middleware_passes_through_with_valid_bearer_token_and_injects_claims() {
+        let svc = make_service("test-secret", 1, true);
+        let token = svc.generate_token("alice", "admin").unwrap();
+ 
+        let app = awtest::init_service(
+            App::new()
+                .wrap(JwtAuth::new(svc))
+                .route("/protected", web::get().to(protected_handler)),
+        ).await;
+ 
+        let req = awtest::TestRequest::get()
+            .uri("/protected")
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+ 
+        let resp = awtest::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "valid token → 200; got {}", resp.status());
+ 
+        let body: Value = awtest::read_body_json(resp).await;
+        assert_eq!(body["role"], "admin");
+    }
+}
