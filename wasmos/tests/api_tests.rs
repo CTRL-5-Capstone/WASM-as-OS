@@ -393,7 +393,7 @@ mod db_tests {
             4,   // max_concurrent
             30,  // timeout_secs
         ));
-        let query_cache = wasmos::query_cache::QueryCache::new();
+        let query_cache = wasmos::query_cache::QueryCache::new().await;
 
         Ok(wasmos::server::AppState {
             task_repo,

@@ -82,7 +82,7 @@ fn run_file(path: &Path) -> Outcome {
     }
 
     let path_str = wasm_path.as_ref().as_ref().to_string_lossy().to_string();
-    match execute_wasm_file(&path_str) {
+    match execute_wasm_file(&path_str, None) {
         Ok(result) => {
             if result.success {
                 Outcome::Pass {

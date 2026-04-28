@@ -631,7 +631,7 @@ impl Runtime
                                 self.instruction_count,
                                 format!(
                                     "Blocked by '{}' policy (default={:?})",
-                                    self.policy.label,
+                                    self.policy.label(),
                                     self.policy.default_action,
                                 ),
                             ));
@@ -639,7 +639,7 @@ impl Runtime
                         // Log to stdout so the UI can surface it
                         let blocked_msg = format!(
                             "[SYSCALL BLOCKED] '{}::{}' denied by {} policy at instruction {}",
-                            mod_name, imp_name, self.policy.label, self.instruction_count,
+                            mod_name, imp_name, self.policy.label(), self.instruction_count,
                         );
                         println!("{}", blocked_msg);
                         self.stdout_log.push(blocked_msg);

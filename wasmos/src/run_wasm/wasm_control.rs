@@ -11,7 +11,7 @@ pub fn execute_wasm_file(
     policy: Option<SyscallPolicy>,
 ) -> Result<super::execution_result::ExecutionResult, String> {
     let policy = policy.unwrap_or_else(SyscallPolicy::permissive);
-    let policy_label = policy.label.clone();
+    let policy_label = policy.label().to_string();
 
     let path = std::path::Path::new(path_str);
     if !path.exists() {
