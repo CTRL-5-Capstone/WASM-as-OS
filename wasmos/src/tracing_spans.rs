@@ -341,3 +341,262 @@ impl Tracer {
         self.store.commit(self.trace).await;
     }
 }
+
+
+// ─── In-source tests ─────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+ 
+    // ─── Span ────────────────────────────────────────────────────────────────
+ 
+    #[test]
+    fn span_new_root_assigns_unique_ids_and_returns_trace_id() {
+        let (span, trace_id) = Span::new_root("task-1", "hello.wasm");
+ 
+        assert_eq!(span.task_id, "task-1");
+        assert_eq!(span.task_name, "hello.wasm");
+        assert_eq!(span.kind, SpanKind::Root);
+        assert!(span.parent_id.is_none(), "root span must have no parent");
+        assert_eq!(span.trace_id, trace_id);
+        assert_ne!(span.span_id, span.trace_id, "span_id and trace_id are independent UUIDs");
+        assert!(!span.success, "freshly-created spans default to success=false until finished");
+        assert!(span.ended_at.is_none());
+        assert!(span.duration_us.is_none());
+        assert!(span.tags.is_empty());
+    }
+ 
+    #[test]
+    fn span_new_root_generates_distinct_trace_ids() {
+        let (_, t1) = Span::new_root("a", "a.wasm");
+        let (_, t2) = Span::new_root("a", "a.wasm");
+        assert_ne!(t1, t2, "every root span gets a fresh UUID");
+    }
+ 
+    #[test]
+    fn span_child_inherits_trace_id_and_records_parent() {
+        let (root, _) = Span::new_root("task-1", "hello.wasm");
+        let child = root.child(SpanKind::Execute, "task-1", "hello.wasm");
+ 
+        assert_eq!(child.trace_id, root.trace_id);
+        assert_eq!(child.parent_id.as_deref(), Some(root.span_id.as_str()));
+        assert_eq!(child.kind, SpanKind::Execute);
+        assert_ne!(child.span_id, root.span_id);
+    }
+ 
+    #[test]
+    fn span_finish_populates_timing_and_status() {
+        let (mut span, _) = Span::new_root("task", "x.wasm");
+        let start = Instant::now();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        span.finish(true, None, &start);
+ 
+        assert!(span.ended_at.is_some());
+        assert!(span.duration_us.unwrap() >= 2_000, "duration should reflect at least 2ms");
+        assert!(span.success);
+        assert!(span.error.is_none());
+    }
+ 
+    #[test]
+    fn span_finish_records_failure_and_error_message() {
+        let (mut span, _) = Span::new_root("task", "x.wasm");
+        let start = Instant::now();
+        span.finish(false, Some("trap: out of memory".into()), &start);
+ 
+        assert!(!span.success);
+        assert_eq!(span.error.as_deref(), Some("trap: out of memory"));
+    }
+ 
+    #[test]
+    fn span_tag_round_trips_through_serde_json() {
+        let (mut span, _) = Span::new_root("task", "x.wasm");
+        span.tag("instructions", 1_234_i64);
+        span.tag("wasm_path", "/tmp/x.wasm");
+ 
+        assert_eq!(span.tags.get("instructions").and_then(|v| v.as_i64()), Some(1_234));
+        assert_eq!(span.tags.get("wasm_path").and_then(|v| v.as_str()), Some("/tmp/x.wasm"));
+    }
+ 
+    // ─── Trace ───────────────────────────────────────────────────────────────
+ 
+    #[test]
+    fn trace_new_seeds_root_span_into_spans_vec() {
+        let (root, _) = Span::new_root("t", "x.wasm");
+        let trace = Trace::new(&root);
+ 
+        assert_eq!(trace.trace_id, root.trace_id);
+        assert_eq!(trace.task_id, root.task_id);
+        assert_eq!(trace.spans.len(), 1);
+        assert!(trace.ended_at.is_none());
+        assert!(trace.total_duration_us.is_none());
+    }
+ 
+    #[test]
+    fn trace_add_span_appends_in_order() {
+        let (root, _) = Span::new_root("t", "x.wasm");
+        let mut trace = Trace::new(&root);
+ 
+        let load = root.child(SpanKind::Load, "t", "x.wasm");
+        let exec = root.child(SpanKind::Execute, "t", "x.wasm");
+        trace.add_span(load.clone());
+        trace.add_span(exec.clone());
+ 
+        assert_eq!(trace.spans.len(), 3);
+        assert_eq!(trace.spans[1].span_id, load.span_id);
+        assert_eq!(trace.spans[2].span_id, exec.span_id);
+    }
+ 
+    #[test]
+    fn trace_finish_pulls_total_duration_from_root_span() {
+        let (mut root, _) = Span::new_root("t", "x.wasm");
+        let start = Instant::now();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        root.finish(true, None, &start);
+ 
+        let mut trace = Trace::new(&root);
+        trace.spans[0] = root;
+        trace.finish(true);
+ 
+        assert!(trace.success);
+        assert!(trace.ended_at.is_some());
+        assert!(trace.total_duration_us.unwrap() >= 1_000);
+    }
+ 
+    // ─── TraceStore ─────────────────────────────────────────────────────────
+ 
+    fn make_finished_trace(task_id: &str, task_name: &str, dur_us: i64, success: bool) -> Trace {
+        let (mut root, _) = Span::new_root(task_id, task_name);
+        root.duration_us = Some(dur_us);
+        root.ended_at = Some(chrono::Utc::now());
+        root.success = success;
+        let mut trace = Trace::new(&root);
+        trace.spans[0] = root;
+        trace.finish(success);
+        trace
+    }
+ 
+    #[tokio::test]
+    async fn store_recent_returns_traces_in_reverse_insertion_order() {
+        let store = TraceStore::new();
+        store.commit(make_finished_trace("t1", "a.wasm", 100, true)).await;
+        store.commit(make_finished_trace("t2", "b.wasm", 200, true)).await;
+        store.commit(make_finished_trace("t3", "c.wasm", 300, true)).await;
+ 
+        let recent = store.recent(10).await;
+        assert_eq!(recent.len(), 3);
+        assert_eq!(recent[0].task_id, "t3", "most recent first");
+        assert_eq!(recent[1].task_id, "t2");
+        assert_eq!(recent[2].task_id, "t1");
+    }
+ 
+    #[tokio::test]
+    async fn store_recent_respects_limit() {
+        let store = TraceStore::new();
+        for i in 0..5 {
+            store.commit(make_finished_trace(&format!("t{i}"), "x.wasm", 100, true)).await;
+        }
+        let recent = store.recent(2).await;
+        assert_eq!(recent.len(), 2);
+    }
+ 
+    #[tokio::test]
+    async fn store_for_task_filters_by_task_id() {
+        let store = TraceStore::new();
+        store.commit(make_finished_trace("alpha", "a.wasm", 100, true)).await;
+        store.commit(make_finished_trace("beta", "b.wasm", 200, true)).await;
+        store.commit(make_finished_trace("alpha", "a.wasm", 150, false)).await;
+ 
+        let alpha = store.for_task("alpha").await;
+        assert_eq!(alpha.len(), 2);
+        assert!(alpha.iter().all(|t| t.task_id == "alpha"));
+ 
+        let none = store.for_task("nonexistent").await;
+        assert!(none.is_empty());
+    }
+ 
+    #[tokio::test]
+    async fn store_live_metrics_returns_default_when_empty() {
+        let store = TraceStore::new();
+        let m = store.live_metrics(100).await;
+        assert_eq!(m.window_size, 0);
+        assert_eq!(m.success_rate, 0.0);
+        assert_eq!(m.error_rate, 0.0);
+        assert_eq!(m.p50_us, 0);
+    }
+ 
+    #[tokio::test]
+    async fn store_live_metrics_computes_success_rate_and_percentiles() {
+        let store = TraceStore::new();
+        // 8 successes, 2 failures, durations 100..1000
+        for (i, dur) in [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].iter().enumerate() {
+            let success = i < 8;
+            store.commit(make_finished_trace("t", "x.wasm", *dur, success)).await;
+        }
+ 
+        let m = store.live_metrics(10).await;
+        assert_eq!(m.window_size, 10);
+        assert!((m.success_rate - 0.8).abs() < 1e-9);
+        assert!((m.error_rate - 0.2).abs() < 1e-9);
+        // Sorted [100..1000]; P50 idx = round(0.5 * 9) = 5 → 600
+        assert_eq!(m.p50_us, 600);
+        assert_eq!(m.p95_us, 1000);
+        assert_eq!(m.p99_us, 1000);
+        assert_eq!(m.avg_us, (100+200+300+400+500+600+700+800+900+1000)/10);
+    }
+ 
+    #[tokio::test]
+    async fn store_live_metrics_window_caps_to_recent() {
+        let store = TraceStore::new();
+        for _ in 0..5 { store.commit(make_finished_trace("t", "x.wasm", 100, true)).await; }
+        for _ in 0..5 { store.commit(make_finished_trace("t", "x.wasm", 1000, true)).await; }
+ 
+        let m = store.live_metrics(5).await;
+        assert_eq!(m.window_size, 5);
+        assert_eq!(m.p50_us, 1000);
+        assert_eq!(m.avg_us, 1000);
+    }
+ 
+    // ─── Tracer (full builder) ──────────────────────────────────────────────
+ 
+    #[tokio::test]
+    async fn tracer_full_lifecycle_commits_to_store() {
+        let store = TraceStore::new();
+        let mut tracer = Tracer::start(store.clone(), "task-1", "x.wasm");
+ 
+        tracer.record_span(
+            SpanKind::Load, true, None,
+            vec![("file_size".into(), serde_json::json!(1024))],
+            500,
+        );
+        tracer.record_span(
+            SpanKind::Execute, true, None,
+            vec![("instructions".into(), serde_json::json!(42))],
+            2_000,
+        );
+ 
+        tracer.finish(true, None).await;
+ 
+        let stored = store.recent(10).await;
+        assert_eq!(stored.len(), 1);
+        let trace = &stored[0];
+        assert_eq!(trace.task_id, "task-1");
+        assert!(trace.success);
+        // Root + Load + Execute = 3 spans
+        assert_eq!(trace.spans.len(), 3);
+        let kinds: Vec<&SpanKind> = trace.spans.iter().map(|s| &s.kind).collect();
+        assert_eq!(kinds, vec![&SpanKind::Root, &SpanKind::Load, &SpanKind::Execute]);
+    }
+ 
+    #[tokio::test]
+    async fn tracer_finish_with_failure_records_error() {
+        let store = TraceStore::new();
+        let tracer = Tracer::start(store.clone(), "task-x", "boom.wasm");
+        tracer.finish(false, Some("trap".into())).await;
+ 
+        let stored = store.recent(10).await;
+        assert_eq!(stored.len(), 1);
+        assert!(!stored[0].success);
+        assert_eq!(stored[0].spans[0].error.as_deref(), Some("trap"));
+    }
+}
