@@ -6,7 +6,6 @@
 //!
 //! ## Usage (from build_runtime)
 //!
-//! ```rust,ignore
 //! let policy = SyscallPolicy::permissive();
 //! // at import call site:
 //! if let PolicyAction::Deny = policy.check("host_log") { /* block */ }
